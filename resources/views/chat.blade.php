@@ -95,14 +95,7 @@
         let currentSession = null;
         let chartInstances = {};
 
-        function resetChatView() {
-            chatMessages.innerHTML = '';
-            chatMessages.style.display = 'none';
-            emptyState.style.display = 'flex';
-            currentSession = null;
-            chartInstances = {};
-            updateDownloadButtonState();
-        }
+        
 
         function saveHistory() {
             localStorage.setItem('bmkgChatHistory', JSON.stringify(chatHistory));
