@@ -1,0 +1,10 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ChatController;
+
+// Rute untuk menampilkan halaman utama
+Route::get('/', [ChatController::class, 'index']);
+
+// Rute untuk API data iklim
+Route::get('/api/climate-data', [ChatController::class, 'getClimateData']);
