@@ -95,7 +95,14 @@
         let currentSession = null;
         let chartInstances = {};
 
-        
+        function resetChatView() {
+            chatMessages.innerHTML = '';
+            chatMessages.style.display = 'none';
+            emptyState.style.display = 'flex';
+            currentSession = null;
+            chartInstances = {};
+            updateDownloadButtonState();
+        }
 
         function saveHistory() {
             localStorage.setItem('bmkgChatHistory', JSON.stringify(chatHistory));
@@ -198,16 +205,19 @@
             const chartId = payload.chartId || `chart-norm-${Date.now()}`;
             if (save) currentSession.messages.push({ type: 'chart_normal', payload: { ...payload, chartId } });
 
-            const title = `Curah Hujan Normal (Rata-Rata) ${payload.kecamatan}`;
+            // --- PERUBAHAN JUDUL GRAFIK ---
+            // Judul grafik sekarang selalu menggunakan nama wilayah yang spesifik (desa, kab, atau prov)
+            const title = `Curah Hujan untuk ${payload.kecamatan}`;
             const canvas = createChartBubble(chartId, title);
             initializeChart(canvas, { labels: payload.normal.chart_labels, data: payload.normal.chart_data });
 
             // --- PEMBUATAN NARASI DINAMIS ---
             let context;
-            if (payload.location_details) {
-                // Narasi untuk input koordinat
+            if (payload.location_details && payload.location_details.desa) {
+                // Narasi baru yang sangat detail untuk input koordinat
                 const details = payload.location_details;
-                context = `Wilayah '${details.lat_input}, ${details.lon_input}' (${details.provinsi}, ${details.kabupaten}) ini`;
+                const fullAddress = [details.desa, details.kecamatan, details.kabupaten, details.provinsi].filter(Boolean).join(', ');
+                context = `Wilayah dengan koordinat <b>${details.lat_input}, ${details.lon_input}</b> (diperkirakan berada di <b>${fullAddress}</b>)`;
             } else {
                 // Narasi untuk rata-rata provinsi atau kabupaten
                 context = `Wilayah <b>${payload.kecamatan}</b> secara rata-rata`;
