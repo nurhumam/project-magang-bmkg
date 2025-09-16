@@ -149,7 +149,7 @@ html {
 
 .delete-history-btn:hover {
     background-color: rgba(255, 255, 255, 0.1);
-    color: white;
+    color: rgb(44, 44, 44);
 }
 
 .sidebar-footer {
