@@ -407,6 +407,8 @@
             }
         });
 
+
+        
         downloadChatBtn.addEventListener('click', async () => {
             if (!currentSession) return;
             const { jsPDF } = window.jspdf;
