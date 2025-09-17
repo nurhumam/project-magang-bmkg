@@ -40,68 +40,72 @@ class ChatController extends Controller
         if (preg_match('/^[-]?\d{1,3}\.\d+,\s*[-]?\d{1,3}\.\d+$/', $userInput)) {
             list($lat, $lon) = array_map('trim', explode(',', $userInput));
 
-            // LANGKAH 1: Langsung cari data iklim terdekat DULU. Ini wajib berhasil.
+            // LANGKAH 1: Cari data iklim terdekat
             $nearestPoint = ClimateData::select('*', DB::raw("SQRT(POW(lat - ($lat), 2) + POW(lon - ($lon), 2)) AS distance"))
                 ->orderBy('distance', 'asc')->first();
 
-            // Jika data iklim lokal TIDAK ADA, maka hentikan proses.
             if (!$nearestPoint) {
                 return response()->json(['error' => 'Tidak ada data iklim yang ditemukan di database lokal.'], 404);
             }
 
-            // LANGKAH 2: Coba dapatkan detail alamat (dari cache atau API). Ini bersifat opsional.
+            // LANGKAH 2: Ambil detail alamat dari cache atau API Nominatim
             $roundedLat = round($lat, 4);
             $roundedLon = round($lon, 4);
             $addressData = null;
 
-            $cachedLocation = GeoCache::where('latitude', $roundedLat)->where('longitude', $roundedLon)->first();
+            $cachedLocation = GeoCache::where('latitude', $roundedLat)
+                ->where('longitude', $roundedLon)
+                ->first();
 
             if ($cachedLocation) {
                 $addressData = $cachedLocation->toArray();
             } else {
                 try {
-                    // --- PERUBAHAN UTAMA: MENGGUNAKAN API DARI BIG ---
                     $geoResponse = Http::withHeaders([
-                        // Ganti 'YOUR_API_KEY' dengan kunci API Anda jika diperlukan.
-                        // Jika tidak perlu, Anda bisa menghapus atau mengosongkan header ini.
-                        'Authorization' => 'Bearer YOUR_API_KEY'
-                    ])->timeout(15)->get("https://api.ina-sdi.or.id/geospasial/reverse", [
-                                'lat' => $lat,
-                                'lon' => $lon,
-                            ]);
+                        'User-Agent' => 'Chat-bmkg-pt/1.0 (nurulhumam01@email.com)'
+                    ])->timeout(15)->get("https://nominatim.openstreetmap.org/reverse", [
+                        'lat' => $lat,
+                        'lon' => $lon,
+                        'format' => 'json',
+                        'addressdetails' => 1
+                    ]);
 
-                    if ($geoResponse->successful() && isset($geoResponse->json()['data'])) {
-                        $result = $geoResponse->json()['data'];
+                    if ($geoResponse->successful() && isset($geoResponse->json()['address'])) {
+                        $result = $geoResponse->json()['address'];
 
-                        // Menyesuaikan dengan struktur respons dari API BIG
-                        $desa = $result['desa'] ?? $result['kelurahan'] ?? $nearestPoint->ID_KABKOTA_IKN;
+                        $desa = $result['village'] ?? $result['suburb'] ?? null;
+                        $kecamatan = $result['county'] ?? $result['city_district'] ?? null;
+                        $kabupaten = $result['city'] ?? $result['municipality'] ?? null;
+                        $provinsi = $result['state'] ?? null;
 
                         $newCache = GeoCache::create([
                             'latitude' => $roundedLat,
                             'longitude' => $roundedLon,
                             'desa' => $desa,
-                            'kecamatan' => $result['kecamatan'] ?? null,
-                            'kabupaten' => $result['kabupaten'] ?? $result['kota'] ?? null,
-                            'provinsi' => $result['provinsi'] ?? null,
-                            'display_name' => $result['display_name'] ?? "$desa, {$result['kecamatan']}",
+                            'kecamatan' => $kecamatan,
+                            'kabupaten' => $kabupaten,
+                            'provinsi' => $provinsi,
+                            'display_name' => $geoResponse->json()['display_name'] ?? "$desa, $kecamatan"
                         ]);
+
                         $addressData = $newCache->toArray();
                     }
                 } catch (\Exception $e) {
-                    Log::error('API Geocoding BIG Gagal: ' . $e->getMessage());
+                    Log::error('API Geocoding Nominatim gagal: ' . $e->getMessage());
                 }
             }
 
-            // LANGKAH 3: Tentukan nama lokasi dan detailnya.
-            $locationName = $addressData['desa'] ?? $nearestPoint->ID_KABKOTA_IKN; // Fallback ke nama kabupaten
+            // LANGKAH 3: Tentukan nama lokasi
+            $locationName = $addressData['desa'] ?? $nearestPoint->ID_KABKOTA_IKN;
+
             if ($addressData) {
                 $locationDetails = [
                     'lat_input' => $lat,
                     'lon_input' => $lon,
-                    'desa' => $addressData['desa'],
-                    'kecamatan' => $addressData['kecamatan'],
-                    'kabupaten' => $addressData['kabupaten'],
-                    'provinsi' => $addressData['provinsi']
+                    'desa' => $addressData['desa'] ?? null,
+                    'kecamatan' => $addressData['kecamatan'] ?? null,
+                    'kabupaten' => $addressData['kabupaten'] ?? null,
+                    'provinsi' => $addressData['provinsi'] ?? null,
                 ];
             } else {
                 $locationDetails = [
@@ -112,15 +116,14 @@ class ChatController extends Controller
                 ];
             }
 
-            // Siapkan payload dengan data iklim dan nama lokasi yang sudah ditentukan.
+            // Siapkan payload data iklim
             $dataValues = [];
             foreach ($months as $month) {
                 $dataValues[] = (float) $nearestPoint->$month;
             }
             $responsePayload = ['name' => $locationName, 'data' => $dataValues];
-
         } else {
-            // --- Logika untuk provinsi dan kabupaten/kota ---
+            // --- Logika untuk input berupa provinsi/kabupaten ---
             $avgProv = DB::table('id_grid_chprovkab_jawa')
                 ->select('ID_PROV38', ...array_map(fn($m) => DB::raw("AVG(`$m`) as `$m`"), $months))
                 ->where(DB::raw('LOWER(ID_PROV38)'), $userInputLower)

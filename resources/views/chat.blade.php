@@ -16,7 +16,6 @@
 
 <body>
     <div class="app-layout">
-        <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
                 <a href="#" id="new-chat-btn" class="new-chat-btn">
@@ -37,7 +36,6 @@
             <nav class="chat-history">
                 <p>Riwayat Obrolan</p>
                 <ul id="history-list">
-                    <!-- Riwayat akan dimuat di sini -->
                 </ul>
             </nav>
             <div class="sidebar-footer">
@@ -48,7 +46,6 @@
             </div>
         </aside>
 
-        <!-- Konten Utama -->
         <main class="main-content">
             <div id="chat-container">
                 <div id="empty-state">
@@ -69,10 +66,11 @@
                             placeholder="Tanyakan tentang data iklim di kecamatan atau kabupaten..." autocomplete="off"
                             required />
                         <button id="send-btn" type="submit" aria-label="Kirim">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-                                xmlns="http://www.w3.org/2000/svg">
-                                <path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" stroke-width="2"
-                                    stroke-linecap="round" stroke-linejoin="round" />
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" class="feather feather-arrow-right">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
                             </svg>
                         </button>
                     </div>
@@ -147,6 +145,16 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        function addFormattedMessage(htmlContent, sender = 'bot') {
+            emptyState.style.display = 'none';
+            chatMessages.style.display = 'flex';
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}`;
+            msgDiv.innerHTML = htmlContent;
+            chatMessages.appendChild(msgDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
         function createChartBubble(chartId, title) {
             const chartWrapper = document.createElement('div');
             chartWrapper.className = 'message bot';
@@ -158,7 +166,7 @@
                     <div class="year-selector-wrapper" id="selector-${chartId}"></div>
                 </div>
                 <div class="chart-canvas-container"><canvas id="${chartId}"></canvas></div>
-                <button class="download-chart-btn" data-chart-id="${chartId}" title="Unduh Grafik"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M21 15V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m14-7-5 5-5-5m5 5V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <button class="download-chart-btn" data-chart-id="${chartId}" title="Unduh Grafik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
             `;
             chartWrapper.appendChild(bubble);
             chatMessages.appendChild(chartWrapper);
@@ -205,21 +213,19 @@
             const chartId = payload.chartId || `chart-norm-${Date.now()}`;
             if (save) currentSession.messages.push({ type: 'chart_normal', payload: { ...payload, chartId } });
 
-            // --- PERUBAHAN JUDUL GRAFIK ---
-            // Judul grafik sekarang selalu menggunakan nama wilayah yang spesifik (desa, kab, atau prov)
             const title = `Curah Hujan untuk ${payload.kecamatan}`;
             const canvas = createChartBubble(chartId, title);
             initializeChart(canvas, { labels: payload.normal.chart_labels, data: payload.normal.chart_data });
 
-            // --- PEMBUATAN NARASI DINAMIS ---
+            // --- PERUBAHAN NARASI DI SINI ---
             let context;
-            if (payload.location_details && payload.location_details.desa) {
-                // Narasi baru yang sangat detail untuk input koordinat
+            if (payload.location_details && (payload.location_details.desa || payload.location_details.kecamatan)) {
+                // Narasi yang menampilkan hierarki wilayah lengkap untuk input koordinat
                 const details = payload.location_details;
                 const fullAddress = [details.desa, details.kecamatan, details.kabupaten, details.provinsi].filter(Boolean).join(', ');
-                context = `Wilayah dengan koordinat <b>${details.lat_input}, ${details.lon_input}</b> (diperkirakan berada di <b>${fullAddress}</b>)`;
+                context = `Wilayah <b>${fullAddress}</b> secara rata-rata`;
             } else {
-                // Narasi untuk rata-rata provinsi atau kabupaten
+                // Narasi fallback untuk pencarian berdasarkan nama provinsi atau kabupaten
                 context = `Wilayah <b>${payload.kecamatan}</b> secara rata-rata`;
             }
 
@@ -269,12 +275,12 @@
                 return `${context} tampaknya mengalami musim kemarau sepanjang tahun, dengan curah hujan terendah pada <b>${troughMonth}</b> (${Math.round(minRain)} mm).`;
             }
 
-            let description = `${context} memiliki pola iklim yang jelas dengan perbedaan antara musim hujan dan musim kemarau. `;
+            let description = `${context} memiliki pola iklim yang jelas. `;
             if (rainySeason) {
-                description += `Musim hujan berlangsung dari <b>${rainySeason.start}</b> hingga <b>${rainySeason.end}</b>, dengan curah hujan tinggi di atas ${RAINY_THRESHOLD} mm per bulan dan puncaknya pada <b>${peakMonth}</b> yang mencapai sekitar <b>${Math.round(maxRain)} mm</b>. `;
+                description += `Musim hujan umumnya berlangsung dari <b>${rainySeason.start}</b> hingga <b>${rainySeason.end}</b>, puncaknya pada <b>${peakMonth}</b> (~<b>${Math.round(maxRain)} mm</b>). `;
             }
             if (drySeason) {
-                description += `Mulai <b>${drySeason.start}</b> hingga <b>${drySeason.end}</b>, curah hujan menurun drastis dan mencapai titik terendah sekitar <b>${Math.round(minRain)} mm</b> pada <b>${troughMonth}</b>, menandai musim kemarau.`;
+                description += `Sementara musim kemarau terjadi dari <b>${drySeason.start}</b> hingga <b>${drySeason.end}</b>, dengan curah hujan terendah pada <b>${troughMonth}</b> (~<b>${Math.round(minRain)} mm</b>).`;
             }
             return description;
         }
@@ -283,12 +289,17 @@
             e.preventDefault();
             const userInput = chatInput.value.trim();
             if (!userInput) return;
-            if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) { chatHistory.unshift(currentSession); }
+
+            if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) {
+                chatHistory.unshift(currentSession);
+            }
 
             resetChatView();
+
+            currentSession = { id: Date.now(), title: userInput.length > 28 ? userInput.substring(0, 28) + '...' : userInput, messages: [] };
+
             emptyState.style.display = 'none';
             chatMessages.style.display = 'flex';
-            currentSession = { id: Date.now(), title: userInput.length > 28 ? userInput.substring(0, 28) + '...' : userInput, messages: [] };
             addMessage(userInput, 'user');
             chatInput.value = '';
             addMessage('<div class="loader"></div>', 'bot', false);
@@ -300,33 +311,76 @@
             try {
                 const res = await fetch(`/api/climate-data?kecamatan=${encodeURIComponent(keywords)}&tahun=${tahun}`);
                 const data = await res.json();
-                chatMessages.querySelector('.loader').parentElement.remove();
+                chatMessages.querySelector('.loader').parentElement.parentElement.remove();
 
-                if (data.error) addMessage(data.error, 'bot');
-                else {
+                if (data.error) {
+                    const errorHtml = `
+                        <div class="bubble bubble-info">
+                            <div class="bubble-info-header">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                <h4>Lokasi Tidak Ditemukan</h4>
+                            </div>
+                            <p>
+                                Maaf, saya tidak dapat menemukan data untuk <b>"${keywords}"</b>. Saat ini, basis data saya hanya mencakup wilayah di <b>Pulau Jawa</b>.
+                            </p>
+                            <p class="suggestion-title">Anda bisa mencoba:</p>
+                            <ul>
+                                <li>Memeriksa kembali ejaan nama lokasi.</li>
+                                <li>Memasukkan nama <b>Kabupaten</b> atau <b>Provinsi</b> di Pulau Jawa.</li>
+                                <li>Menggunakan format koordinat (Lintang, Bujur).</li>
+                            </ul>
+                            <p class="suggestion-example">
+                                Contoh: <code>Bandung</code> atau <code>-6.20, 106.84</code>
+                            </p>
+                        </div>
+                    `;
+                    addFormattedMessage(errorHtml);
+                } else {
                     let anyDataFound = false;
                     if (data.time_series && data.time_series.available_years.length > 0) { anyDataFound = true; addHistoricChart(data); }
                     if (data.normal) { anyDataFound = true; addNormalChart(data); }
                     if (!anyDataFound) addMessage('Data tidak ditemukan.', 'bot');
                 }
             } catch (err) {
-                if (chatMessages.querySelector('.loader')) chatMessages.querySelector('.loader').parentElement.remove();
-                addMessage('Maaf, terjadi kesalahan server.', 'bot'); console.error(err);
+                if (chatMessages.querySelector('.loader')) chatMessages.querySelector('.loader').parentElement.parentElement.remove();
+                addMessage('Maaf, terjadi kesalahan pada server. Silakan coba lagi.', 'bot'); console.error(err);
             }
             saveHistory(); renderHistorySidebar(); updateDownloadButtonState();
         });
 
         newChatBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) { chatHistory.unshift(currentSession); }
-            saveHistory(); renderHistorySidebar(); resetChatView();
+            if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) {
+                chatHistory.unshift(currentSession);
+            }
+            saveHistory();
+            renderHistorySidebar();
+            resetChatView();
         });
 
         historyList.addEventListener('click', (e) => {
+            e.preventDefault();
             const link = e.target.closest('a');
             const deleteBtn = e.target.closest('.delete-history-btn');
-            if (link) { e.preventDefault(); const sessionId = link.dataset.sessionId; const sessionToLoad = chatHistory.find(s => s.id == sessionId); if (sessionToLoad) renderSession(sessionToLoad); }
-            if (deleteBtn) { e.preventDefault(); const sessionId = deleteBtn.dataset.sessionId; chatHistory = chatHistory.filter(s => s.id != sessionId); saveHistory(); renderHistorySidebar(); if (currentSession && currentSession.id == sessionId) resetChatView(); }
+
+            if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) {
+                chatHistory.unshift(currentSession);
+                saveHistory();
+                renderHistorySidebar();
+            }
+
+            if (link) {
+                const sessionId = link.dataset.sessionId;
+                const sessionToLoad = chatHistory.find(s => s.id == sessionId);
+                if (sessionToLoad) renderSession(sessionToLoad);
+            }
+            if (deleteBtn) {
+                const sessionId = deleteBtn.dataset.sessionId;
+                chatHistory = chatHistory.filter(s => s.id != sessionId);
+                saveHistory();
+                renderHistorySidebar();
+                if (currentSession && currentSession.id == sessionId) resetChatView();
+            }
         });
 
         chatMessages.addEventListener('click', (e) => {
@@ -370,7 +424,7 @@
                 console.error("Gagal membuat PDF:", error);
                 alert("Gagal membuat PDF. Silakan coba lagi.");
             } finally {
-                downloadChatBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24"><path d="M21 15V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m14-7-5 5-5-5m5 5V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                downloadChatBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m14-7l-5 5-5-5m5 5V3"/></svg>`;
             }
         });
 

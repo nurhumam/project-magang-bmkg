@@ -7,6 +7,8 @@
     --border-color: rgba(0, 0, 0, 0.2);
     --input-bg: #ececee;
     --accent-blue: #3B82F6;
+    --accent-yellow: #FBC02D;
+    --yellow-dark: #D97706;
 }
 
 * {
@@ -61,7 +63,7 @@ html {
 }
 
 .new-chat-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .icon-btn {
@@ -75,7 +77,7 @@ html {
 }
 
 .icon-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .icon-btn:disabled {
@@ -148,7 +150,7 @@ html {
 }
 
 .delete-history-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(0, 0, 0, 0.1);
     color: rgb(44, 44, 44);
 }
 
@@ -169,6 +171,7 @@ html {
     height: 32px;
     border-radius: 50%;
     background-color: #7B1FA2;
+    color: var(--text-dark);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -247,8 +250,8 @@ html {
 }
 
 .message.user .bubble {
-    background-color: var(--main-bg);
-    color: var(--text-light);
+    background-color: var(--accent-blue);
+    color: var(--text-dark);
 }
 
 .message.bot .bubble {
@@ -274,7 +277,7 @@ html {
 .chart-header h3 {
     font-size: 1.1rem;
     margin: 0;
-    
+
 }
 
 .chart-canvas-container {
@@ -305,18 +308,17 @@ html {
     background: rgba(0, 0, 0, 0.7);
 }
 
-/* --- PERUBAHAN DI SINI: Gaya untuk Narasi dan Dropdown --- */
 .message.narrative-message {
     margin-top: -16px;
 }
 
-/* Menarik narasi lebih dekat ke grafik */
 .bubble.narrative-bubble {
-    background-color: #2E4053;
+    background-color: #f8f9fa;
     border-left: 4px solid var(--accent-blue);
     border-radius: 0 8px 8px 0;
     font-style: italic;
     font-size: 0.95rem;
+    text-align: justify;
     padding: 12px 16px;
 }
 
@@ -367,10 +369,10 @@ html {
     position: relative;
     display: flex;
     align-items: center;
-    background-color: var(--input-bg);
+    background-color: var(--main-bg);
     border-radius: 12px;
     border: 1px solid var(--border-color);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 #chat-input {
@@ -394,22 +396,23 @@ html {
     height: 36px;
     border-radius: 8px;
     border: none;
-    background-color: #202123;
-    color: #8E8EA0;
+    background-color: var(--accent-blue);
+    color: var(--text-dark);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.2s, color 0.2s;
+    transition: background-color 0.2s;
 }
 
 #send-btn:hover {
-    background-color: var(--accent-blue);
-    color: white;
+    background-color: #2563EB;
 }
 
 #send-btn svg {
-    transform: rotate(180deg);
+    width: 20px;
+    height: 20px;
+    transform: rotate(90deg);
 }
 
 .footer-note {
@@ -449,6 +452,68 @@ html {
         transform: rotate(360deg);
     }
 }
+
+/* --- PERBAIKAN TAMPILAN PESAN ERROR/INFO --- */
+.bubble-info {
+    background-color: #f8f9fa;
+    border-left: 4px solid var(--accent-yellow);
+    border-radius: 0 8px 8px 0;
+    color: #495057;
+}
+
+.bubble-info-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    color: #111827;
+}
+
+.bubble-info-header svg {
+    stroke: var(--yellow-dark);
+}
+
+.bubble-info-header h4 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.bubble-info p {
+    margin: 0 0 1rem 0;
+}
+
+.bubble-info b {
+    color: #000;
+}
+
+.bubble-info .suggestion-title {
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #343a40;
+}
+
+.bubble-info ul {
+    margin: 0 0 1rem 0;
+    padding-left: 20px;
+    list-style-type: disc;
+}
+
+.bubble-info .suggestion-example {
+    margin-top: 16px;
+    margin-bottom: 0;
+    font-size: 0.9rem;
+    color: #495057;
+}
+
+.bubble-info code {
+    background-color: #e9ecef;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    color: #c92a2a;
+}
+
 
 /* --- Responsive Design --- */
 @media (max-width: 768px) {
