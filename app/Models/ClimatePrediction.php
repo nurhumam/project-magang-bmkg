@@ -5,9 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ClimateNormal extends Model
+class ClimatePrediction extends Model
 {
     use HasFactory;
-    protected $table = 'climate_normals';
+    protected $table = 'climate_predictions';
     public $timestamps = false;
 }

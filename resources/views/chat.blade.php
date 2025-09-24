@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="id">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,11 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-
 <body>
     <div class="app-layout">
         <aside class="sidebar">
@@ -49,7 +45,6 @@
                 </div>
                 <div id="chat-messages"></div>
             </div>
-
             <div class="chat-input-area">
                 <form id="chat-form" autocomplete="off">
                     <div class="input-wrapper">
@@ -74,7 +69,7 @@
     let currentSession = null;
     let chartInstances = {};
 
-    // --- FUNGSI MANAJEMEN HISTORY & UI (dari versi lama) ---
+    // --- FUNGSI MANAJEMEN HISTORY & UI ---
     function resetChatView() {
         chatMessages.innerHTML = '';
         chatMessages.style.display = 'none';
@@ -92,7 +87,6 @@
         emptyState.style.display = 'none';
         chatMessages.style.display = 'flex';
         currentSession = session;
-        // Diperbarui untuk mengenali semua jenis grafik
         session.messages.forEach(msg => {
             if (msg.type === 'message') addMessage(msg.text, msg.sender, false);
             else if (msg.type === 'chart_normal') addNormalChart(msg.payload, msg.locationName, false);
@@ -106,10 +100,8 @@
     function addMessage(text, sender = 'bot', save = true) { if (save && currentSession) currentSession.messages.push({ type: 'message', text, sender }); emptyState.style.display = 'none'; chatMessages.style.display = 'flex'; const msgDiv = document.createElement('div'); msgDiv.className = `message ${sender}`; msgDiv.innerHTML = `<div class="bubble">${text}</div>`; chatMessages.appendChild(msgDiv); chatMessages.scrollTop = chatMessages.scrollHeight; }
     function addFormattedMessage(htmlContent) { emptyState.style.display = 'none'; chatMessages.style.display = 'flex'; const msgDiv = document.createElement('div'); msgDiv.className = `message bot`; msgDiv.innerHTML = htmlContent; chatMessages.appendChild(msgDiv); chatMessages.scrollTop = chatMessages.scrollHeight; }
     function createChartBubble(chartId, title) { const chartWrapper = document.createElement('div'); chartWrapper.className = 'message bot'; const bubble = document.createElement('div'); bubble.className = 'bubble chart-bubble'; bubble.innerHTML = `<div class="chart-header"><h3>${title}</h3></div><div class="chart-canvas-container"><canvas id="${chartId}"></canvas></div><button class="download-chart-btn" data-chart-id="${chartId}" title="Unduh Grafik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>`; chartWrapper.appendChild(bubble); chatMessages.appendChild(chartWrapper); return document.getElementById(chartId); }
-    function addNarrativeBubble(chartId, narrativeText) { const narrativeWrapper = document.createElement('div'); narrativeWrapper.className = 'message bot narrative-message'; narrativeWrapper.innerHTML = `<div class="bubble narrative-bubble">${narrativeText}</div>`; chatMessages.appendChild(narrativeWrapper); }
 
-
-    // --- FUNGSI-FUNGSI BARU UNTUK SETIAP GRAFIK ---
+    // --- FUNGSI-FUNGSI GRAFIK ---
 
     function addNormalChart(payload, locationName, save = true) {
         const chartId = `chart-norm-${Date.now()}`;
@@ -119,11 +111,7 @@
         
         const threshold = 150;
         chartInstances[chartId] = new Chart(canvas.getContext('2d'), {
-            type: 'line',
-            data: { 
-                labels: [...payload.labels, ...payload.labels], 
-                datasets: [{ label: 'Curah Hujan (mm)', data: [...payload.data, ...payload.data], fill: true, tension: 0.1, segment: { borderColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)', backgroundColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 0.2)' : 'rgba(54, 162, 235, 0.2)' } }, { label: 'Batas Musim Kemarau', data: Array(24).fill(threshold), borderColor: 'rgba(255, 99, 132, 0.7)', borderWidth: 2, borderDash: [5, 5], pointRadius: 0, fill: false }] 
-            },
+            type: 'line', data: { labels: [...payload.labels, ...payload.labels], datasets: [{ label: 'Curah Hujan (mm)', data: [...payload.data, ...payload.data], fill: true, tension: 0.1, segment: { borderColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)', backgroundColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 0.2)' : 'rgba(54, 162, 235, 0.2)' } }, { label: 'Batas Musim Kemarau', data: Array(24).fill(threshold), borderColor: 'rgba(255, 99, 132, 0.7)', borderWidth: 2, borderDash: [5, 5], pointRadius: 0, fill: false }] },
             options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, title: { display: true, text: 'Curah Hujan (mm)' } } } }
         });
     }
@@ -168,17 +156,13 @@
         });
     }
 
-    // --- EVENT LISTENER UTAMA (dari versi baru) ---
+    // --- EVENT LISTENER UTAMA ---
     chatForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         const userInput = chatInput.value.trim();
         if (!userInput) return;
 
-        // Simpan sesi sebelumnya jika ada
-        if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) {
-            chatHistory.unshift(currentSession);
-        }
-        
+        if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) { chatHistory.unshift(currentSession); }
         resetChatView();
         currentSession = { id: Date.now(), title: userInput.length > 30 ? userInput.substring(0, 30) + '...' : userInput, messages: [] };
 
@@ -209,7 +193,7 @@
         updateDownloadButtonState();
     });
 
-    // --- EVENT LISTENER LAINNYA (dari versi lama) ---
+    // --- EVENT LISTENER LAINNYA ---
     newChatBtn.addEventListener('click', (e) => { e.preventDefault(); if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) { chatHistory.unshift(currentSession); } saveHistory(); renderHistorySidebar(); resetChatView(); });
     historyList.addEventListener('click', (e) => { e.preventDefault(); const link = e.target.closest('a'); const deleteBtn = e.target.closest('.delete-history-btn'); if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) { chatHistory.unshift(currentSession); saveHistory(); renderHistorySidebar(); } if (link) { const sessionId = link.dataset.sessionId; const sessionToLoad = chatHistory.find(s => s.id == sessionId); if (sessionToLoad) renderSession(sessionToLoad); } if (deleteBtn) { const sessionId = deleteBtn.dataset.sessionId; chatHistory = chatHistory.filter(s => s.id != sessionId); saveHistory(); renderHistorySidebar(); if (currentSession && currentSession.id == sessionId) resetChatView(); } });
     chatMessages.addEventListener('click', (e) => { const downloadBtn = e.target.closest('.download-chart-btn'); if (downloadBtn) { const chartId = downloadBtn.dataset.chartId; const chart = chartInstances[chartId]; if (!chart) return; const canvas = chart.canvas; const ctx = canvas.getContext('2d'); ctx.save(); ctx.globalCompositeOperation = 'destination-over'; ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height); const link = document.createElement('a'); link.download = `grafik-${chartId}.png`; link.href = canvas.toDataURL('image/png'); link.click(); ctx.restore(); } });
