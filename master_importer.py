@@ -78,25 +78,33 @@ def import_analyses():
         print(f"GAGAL Impor Data Analisis: {e}")
 
 def import_predictions():
-    print("\n--- Memulai Impor Data Prediksi (6 Bulan ke Depan) ---")
+    print("\n--- Memulai Impor Data Prediksi ---")
     try:
         files = [f for f in os.listdir(PATH_PREDIKSI) if f.startswith('pch_ensMean') and f.endswith('.csv')]
         if not files:
             print("INFO: Tidak ada file prediksi ditemukan.")
             return
             
-        print(f"File yang diproses: {files}")
+        print(f"File yang akan diproses: {files}")
         
         all_data = []
+        versions_found = set()
         for file_name in files:
-            match = re.search(r'(\d{4})\.(\d{2})', file_name)
-            if not match: continue
+            # DIUBAH: Regex diperbarui untuk menangkap periode dan versi
+            # Pola: YYYY.MM_ver_YYYY.MM.DD
+            match = re.search(r'(\d{4})\.(\d{2})_ver_(\d{4})\.(\d{2})\.(\d{2})', file_name)
             
-            period = f"{match.group(1)}-{match.group(2)}"
+            if not match:
+                print(f"INFO: Melewatkan file dengan format nama tidak cocok: {file_name}")
+                continue
+            
+            # Ekstrak periode dan versi dari grup regex
+            period = f"{match.group(1)}-{match.group(2)}" # Contoh: 2025-08
+            version = f"{match.group(3)}-{match.group(4)}-{match.group(5)}" # Contoh: 2025-08-01
+            versions_found.add(version)
+
             file_path = os.path.join(PATH_PREDIKSI, file_name)
             
-            # DIUBAH: Logika disederhanakan. pd.read_csv sudah otomatis memisahkan kolom.
-            # Kita hanya perlu membaca file dan langsung memberi nama kolom.
             df = pd.read_csv(
                 file_path, 
                 skiprows=1, 
@@ -105,12 +113,25 @@ def import_predictions():
             )
             
             df.rename(columns={'LON': 'longitude', 'LAT': 'latitude', 'VAL': 'val'}, inplace=True)
+            
+            # Tambahkan kolom periode dan kolom versi yang baru
             df['prediction_period'] = period
+            df['prediction_version'] = version # <--- KOLOM BARU DITAMBAHKAN DI SINI
+            
             all_data.append(df)
         
+        if not all_data:
+            print("INFO: Tidak ada file prediksi valid yang berhasil diproses.")
+            return
+
         final_df = pd.concat(all_data, ignore_index=True)
+        
+        # Kolom baru 'prediction_version' akan otomatis dibuat saat 'replace'
         final_df.to_sql('climate_predictions', con=engine, if_exists='replace', index=False)
+        
         print(f"BERHASIL: Impor Data Prediksi selesai: {len(final_df)} baris.")
+        print(f"Versi yang ditemukan dan diimpor: {sorted(list(versions_found))}")
+        
     except Exception as e:
         print(f"GAGAL: Impor Data Prediksi: {e}")
 

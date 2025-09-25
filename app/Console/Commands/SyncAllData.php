@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Process;
 
 class SyncAllData extends Command
 {
-    protected $signature = 'data:sync-all';
+    protected $signature = 'app:sync-all';
     protected $description = 'Menjalankan skrip Python master untuk menyinkronkan semua data iklim dari file lokal.';
 
     public function handle()
