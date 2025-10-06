@@ -14,7 +14,7 @@ class SyncAllData extends Command
         $this->info('Memulai skrip sinkronisasi data master...');
 
         $process = Process::path(base_path())
-            ->timeout(600) // Beri waktu 10 menit untuk jaga-jaga
+            ->timeout(600) 
             ->run('python master_importer.py');
 
         if ($process->successful()) {

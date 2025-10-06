@@ -2,6 +2,8 @@ import os
 import re
 import pandas as pd
 from sqlalchemy import create_engine, text
+from dateutil.relativedelta import relativedelta
+from datetime import datetime
 
 # --- KONFIGURASI PATH ---
 BASE_PATH = 'C:/Users/USER/Documents/Arsip-Magang/BMKG/web-chat/data'
@@ -36,28 +38,44 @@ def import_normals():
         print(f"GAGAL Impor Data Normal: {e}")
 
 def import_analyses():
-    print("\n--- Memulai Impor Data Analisis (3 Bulan Terakhir) ---")
+    print("\n--- Memulai Impor Data Analisis (3 Bulan Sebelum Bulan Ini) ---")
     try:
-        files = [f for f in os.listdir(PATH_ANALISIS) if f.startswith('BlendGSMAP_POS') and f.endswith('.xls')]
-        files.sort(reverse=True)
+        today = datetime.now()
         
-        files_to_process = files[:3]
+        # 1. Tentukan periode 3 bulan target sebelum bulan ini
+        target_periods_ym = []
+        for i in range(1, 4): # Loop untuk 1, 2, dan 3 bulan yang lalu
+            target_date = today - relativedelta(months=i)
+            target_periods_ym.append(target_date.strftime('%Y%m')) # Format YYYYMM
+        
+        target_periods_ym.sort() 
+        print(f"INFO: Mencari file analisis untuk periode target: {target_periods_ym}")
+
+        # 2. Cari file yang cocok dengan periode target
+        all_files_in_dir = os.listdir(PATH_ANALISIS)
+        files_to_process = []
+        for file_name in all_files_in_dir:
+            # Ekstrak periode YYYYMM dari nama file
+            match = re.search(r'(\d{6})', file_name)
+            if match and match.group(1) in target_periods_ym:
+                files_to_process.append(file_name)
+        
         if not files_to_process:
-            print("Tidak ada file analisis ditemukan.")
+            print("SELESAI: Tidak ada file analisis yang cocok dengan periode target yang ditemukan.")
             return
 
-        files_to_process.reverse()
-        print(f"File yang diproses: {[f for f in files_to_process]}")
+        print(f"File yang akan diproses: {sorted(files_to_process)}")
         
+        # 3. Proses file yang ditemukan (logika ini sebagian besar tetap sama)
         all_data = []
-        periods_to_update = []
-        for file_name in files_to_process:
+        periods_to_update_db = []
+        for file_name in sorted(files_to_process):
             match = re.search(r'(\d{6})', file_name)
             if not match: continue
             
             date_str = match.group(1)
-            period = f"{date_str[:4]}-{date_str[4:]}"
-            periods_to_update.append(period)
+            period = f"{date_str[:4]}-{date_str[4:]}" # Format YYYY-MM
+            periods_to_update_db.append(period)
 
             file_path = os.path.join(PATH_ANALISIS, file_name)
             df = pd.read_excel(file_path, engine='xlrd')
@@ -67,73 +85,79 @@ def import_analyses():
 
         final_df = pd.concat(all_data, ignore_index=True)
 
+        # 4. Lakukan "hapus-lalu-tambah" yang aman dalam transaksi
         with engine.connect() as connection:
-            # Hapus data untuk periode ini, lalu masukkan yang baru
-            delete_query = text("DELETE FROM climate_analyses WHERE data_period IN :periods")
-            connection.execute(delete_query, {'periods': periods_to_update})
-            final_df.to_sql('climate_analyses', con=connection, if_exists='append', index=False)
-            connection.commit()
-        print(f"Impor Data Analisis berhasil: {len(final_df)} baris.")
+            with connection.begin() as transaction:
+                try:
+                    unique_periods = list(set(periods_to_update_db))
+                    print(f"  - Menghapus data lama untuk periode: {unique_periods}...")
+                    delete_query = text("DELETE FROM climate_analyses WHERE data_period IN :periods")
+                    connection.execute(delete_query, {'periods': unique_periods})
+
+                    print(f"  - Memasukkan {len(final_df)} baris data baru...")
+                    final_df.to_sql('climate_analyses', con=connection, if_exists='replace', index=False)
+                    
+                    transaction.commit()
+                    print("  - Transaksi berhasil.")
+                except Exception as e:
+                    print(f"  - GAGAL: Terjadi error, membatalkan transaksi... {e}")
+                    transaction.rollback()
+                    raise
+
+        print(f"BERHASIL: Impor data analisis untuk 3 bulan terakhir telah selesai.")
     except Exception as e:
-        print(f"GAGAL Impor Data Analisis: {e}")
+        print(f"GAGAL: Terjadi kesalahan besar pada proses impor analisis: {e}")
 
 def import_predictions():
-    print("\n--- Memulai Impor Data Prediksi ---")
+    print("\n--- Memulai Impor Data Prediksi (Hapus Total & Ganti Dengan Bulan Ini) ---")
     try:
+        current_month = datetime.now().month
+        current_year = datetime.now().year
+        print(f"INFO: Skrip berjalan pada bulan {current_month}/{current_year}. Hanya file versi bulan ini yang akan diimpor.")
+
         files = [f for f in os.listdir(PATH_PREDIKSI) if f.startswith('pch_ensMean') and f.endswith('.csv')]
         if not files:
-            print("INFO: Tidak ada file prediksi ditemukan.")
+            print("INFO: Tidak ada file prediksi ditemukan di direktori.")
             return
-            
-        print(f"File yang akan diproses: {files}")
-        
+
         all_data = []
-        versions_found = set()
         for file_name in files:
-            # DIUBAH: Regex diperbarui untuk menangkap periode dan versi
-            # Pola: YYYY.MM_ver_YYYY.MM.DD
             match = re.search(r'(\d{4})\.(\d{2})_ver_(\d{4})\.(\d{2})\.(\d{2})', file_name)
-            
             if not match:
-                print(f"INFO: Melewatkan file dengan format nama tidak cocok: {file_name}")
+                continue
+
+            # Logika filter berdasarkan bulan ini tetap dipertahankan
+            file_version_month = int(match.group(4))
+            if file_version_month != current_month:
+                print(f"INFO: Melewatkan '{file_name}' karena versi bulan ({file_version_month}) tidak cocok dengan bulan ini ({current_month}).")
                 continue
             
-            # Ekstrak periode dan versi dari grup regex
-            period = f"{match.group(1)}-{match.group(2)}" # Contoh: 2025-08
-            version = f"{match.group(3)}-{match.group(4)}-{match.group(5)}" # Contoh: 2025-08-01
-            versions_found.add(version)
-
+            print(f"PROSES: Mempersiapkan file '{file_name}'...")
+            period = f"{match.group(1)}-{match.group(2)}"
+            version = f"{match.group(3)}-{match.group(4)}-{match.group(5)}"
+            
             file_path = os.path.join(PATH_PREDIKSI, file_name)
-            
-            df = pd.read_csv(
-                file_path, 
-                skiprows=1, 
-                header=None, 
-                names=['NOGRID', 'LON', 'LAT', 'VAL', 'MIN', 'MAX']
-            )
-            
+            df = pd.read_csv(file_path, skiprows=1, header=None, names=['NOGRID', 'LON', 'LAT', 'VAL', 'MIN', 'MAX'])
             df.rename(columns={'LON': 'longitude', 'LAT': 'latitude', 'VAL': 'val'}, inplace=True)
-            
-            # Tambahkan kolom periode dan kolom versi yang baru
             df['prediction_period'] = period
-            df['prediction_version'] = version # <--- KOLOM BARU DITAMBAHKAN DI SINI
-            
+            df['prediction_version'] = version
             all_data.append(df)
-        
+
         if not all_data:
-            print("INFO: Tidak ada file prediksi valid yang berhasil diproses.")
+            print("SELESAI: Tidak ada file prediksi valid untuk bulan ini yang ditemukan.")
             return
 
         final_df = pd.concat(all_data, ignore_index=True)
-        
-        # Kolom baru 'prediction_version' akan otomatis dibuat saat 'replace'
+
+        # --- LOGIKA DIUBAH KEMBALI MENJADI 'REPLACE' ---
+        # Ini akan menghapus tabel lama dan membuat yang baru hanya dengan data bulan ini.
+        print(f"\MENGHAPUS SELURUH DATA LAMA di tabel 'climate_predictions' dan mengunggah {len(final_df)} baris data baru...")
         final_df.to_sql('climate_predictions', con=engine, if_exists='replace', index=False)
-        
-        print(f"BERHASIL: Impor Data Prediksi selesai: {len(final_df)} baris.")
-        print(f"Versi yang ditemukan dan diimpor: {sorted(list(versions_found))}")
-        
+
+        print(f"BERHASIL: Tabel 'climate_predictions' telah diganti total dengan data prediksi untuk bulan {current_month}.")
+
     except Exception as e:
-        print(f"GAGAL: Impor Data Prediksi: {e}")
+        print(f"GAGAL: Terjadi kesalahan pada proses impor prediksi: {e}")
 
 if __name__ == '__main__':
     import_normals()
