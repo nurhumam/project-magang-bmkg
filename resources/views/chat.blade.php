@@ -7,14 +7,12 @@
     <title>Visualisasi Data Iklim</title>
     <link rel="stylesheet" href="{{ asset('css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script> -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.3/jspdf.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 
 <body>
     <div class="app-layout">
-        {{-- Bagian HTML tidak berubah --}}
         <aside class="sidebar">
             <div class="sidebar-header">
                 <a href="#" id="new-chat-btn" class="new-chat-btn">
@@ -60,7 +58,7 @@
                 <form id="chat-form" autocomplete="off">
                     <div class="input-wrapper">
                         <input id="chat-input" type="text"
-                            placeholder="Tanyakan data iklim (nama lokasi atau koordinat)..." required />
+                            placeholder="masukkan nama Kecamatan atau koordinat (lat, lon)" required />
                         <button id="send-btn" type="submit" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg"
                                 width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -207,44 +205,44 @@
                 data: {
                     labels: payload.labels,
                     datasets: [{
-                            label: 'Curah Hujan (mm)',
-                            data: payload.data,
-                            fill: true,
-                            tension: 0.1,
-                            segment: {
-                                borderColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)',
-                                backgroundColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 0.2)' : 'rgba(54, 162, 235, 0.2)'
-                            }
-                        },
-                        {
-                            label: 'Batas Musim Kemarau',
-                            data: Array(24).fill(threshold),
-                            borderColor: 'rgba(255, 99, 132, 0.7)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            fill: false
-                        },
-                        {
-                            label: 'Batas Atas Normal',
-                            data: payload.data_upper_bound,
-                            borderColor: 'rgba(40, 167, 69, 0.8)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            fill: false,
-                            // tension: 0.1,
-                            borderDash: [5, 5]
-                        },
-                        {
-                            label: 'Batas Bawah Normal',
-                            data: payload.data_lower_bound,
-                            borderColor: 'rgba(139, 69, 19, 0.8)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            fill: false,
-                            // tension: 0.1,
-                            borderDash: [5, 5]
+                        label: 'Curah Hujan (mm)',
+                        data: payload.data,
+                        fill: true,
+                        tension: 0.1,
+                        segment: {
+                            borderColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)',
+                            backgroundColor: c => (c.p0.parsed.y < threshold) ? 'rgba(255, 159, 64, 0.2)' : 'rgba(54, 162, 235, 0.2)'
                         }
+                    },
+                    {
+                        label: 'Batas Musim Kemarau',
+                        data: Array(24).fill(threshold),
+                        borderColor: 'rgba(255, 99, 132, 0.7)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        fill: false
+                    },
+                    {
+                        label: 'Batas Atas Normal',
+                        data: payload.data_upper_bound,
+                        borderColor: 'rgba(40, 167, 69, 0.8)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        // tension: 0.1,
+                        borderDash: [5, 5]
+                    },
+                    {
+                        label: 'Batas Bawah Normal',
+                        data: payload.data_lower_bound,
+                        borderColor: 'rgba(139, 69, 19, 0.8)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        // tension: 0.1,
+                        borderDash: [5, 5]
+                    }
                     ]
                 },
                 options: {
@@ -284,7 +282,7 @@
                             label: 'Curah Hujan (mm)',
                             data: payload.data,
                             // Fungsi untuk menentukan warna bar berdasarkan kondisi
-                            backgroundColor: function(context) {
+                            backgroundColor: function (context) {
                                 const value = context.raw;
                                 const index = context.dataIndex;
                                 const upperBound = payload.upper_bounds[index];
@@ -298,7 +296,7 @@
                                     return 'rgba(255, 205, 86, 0.7)'; // Kuning
                                 }
                             },
-                            borderColor: function(context) {
+                            borderColor: function (context) {
                                 const value = context.raw;
                                 const index = context.dataIndex;
                                 const upperBound = payload.upper_bounds[index];
@@ -410,7 +408,7 @@
         }
 
         // --- EVENT LISTENER UTAMA (DIMODIFIKASI) ---
-        chatForm.addEventListener('submit', async function(e) {
+        chatForm.addEventListener('submit', async function (e) {
             e.preventDefault();
             const userInput = chatInput.value.trim();
             if (!userInput) return;
@@ -435,7 +433,8 @@
                 chatMessages.querySelector('.loader').parentElement.parentElement.remove();
 
                 if (data.error) {
-                    addFormattedMessage(`<div class="bubble bubble-info"><h4>Lokasi Tidak Ditemukan</h4><p>Maaf, saya tidak dapat menemukan data untuk <b>"${userInput}"</b>.</p></div>`);
+                    // Tampilkan pesan error yang spesifik dari API
+                    addFormattedMessage(`<div class="bubble bubble-info"><h4>Data Tidak Ditemukan</h4><p>${data.error}</p></div>`);
                 } else {
                     let anyDataFound = false;
 
@@ -612,7 +611,7 @@
                             checkPageBreak(narrativeHeight);
                             pdf.text(narrativeLines, margin, y, {
                                 align: 'justify',
-                                maxWidth: contentWidth 
+                                maxWidth: contentWidth
                             });
                             y += narrativeHeight + 8;
                             break;

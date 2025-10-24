@@ -6,8 +6,8 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime
 
 # --- KONFIGURASI PATH ---
-BASE_PATH = 'C:/Users/USER/Documents/Arsip-Magang/BMKG/web-chat/data'
-PATH_NORMAL = os.path.join(BASE_PATH, 'data-rata-rata', 'ID_GRID_CHPROVKAB_INDO_NORMAL9120.xlsx')
+BASE_PATH = 'C:/Users/USER/Documents/Arsip-Magang/BMKG/web-chat/web-informasi-iklim/data'
+PATH_NORMAL = os.path.join(BASE_PATH, 'data-rata-rata', 'Grid_Desa_20251021_Table.xls')
 PATH_ANALISIS = os.path.join(BASE_PATH, 'data-analisis')
 PATH_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi')
 
@@ -26,14 +26,23 @@ def import_normals():
         df = pd.read_excel(PATH_NORMAL)
         # Ganti nama kolom agar sesuai dengan tabel DB
         df.rename(columns={
-            'LAT': 'latitude', 'LON': 'longitude', 'ID_PROV38': 'province', 
-            'ID_KABKOTA_IKN': 'regency', 'JAN': 'jan', 'FEB': 'feb', 'MAR': 'mar', 
-            'APR': 'apr', 'MAY': 'may', 'JUN': 'jun', 'JUL': 'jul', 'AUG': 'aug', 
-            'SEP': 'sep', 'OCT': 'oct', 'NOV': 'nov', 'DEC': 'dec'
+            'URUT': 'urut', 'NO_GRID': 'nogrid', 'LAT': 'latitude', 'LON': 'longitude', 
+            'ZOM9120__1': 'zom_1','ZOM9120__NA': 'zom_na', 'TIPE_ZOM': 'tipe_zom', 'CHTHN': 'chthn', 
+            'ID_PROV38': 'province', 'ID_KABKOTA_IKN': 'regency', 'Kecamatan': 'kecamatan', 'Kelurahan/Desa': 'desa',
+            'JAN': 'jan', 'FEB': 'feb', 'MAR': 'mar', 'APR': 'apr', 'MAY': 'may', 'JUN': 'jun', 
+            'JUL': 'jul', 'AUG': 'aug', 'SEP': 'sep', 'OCT': 'oct', 'NOV': 'nov', 'DEC': 'dec'
         }, inplace=True)
-        # Hapus data lama dan ganti dengan yang baru
+
+        cols_to_round = [
+            'latitude', 'longitude', 'chthn', 'jan', 'feb', 'mar', 'apr', 'may', 
+            'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+        ]
+        for col in cols_to_round:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df[cols_to_round] = df[cols_to_round].round(2)
+
         df.to_sql('climate_normals', con=engine, if_exists='replace', index=False)
-        print("Impor Data Normal berhasil.")
+        print("Impor Data Normal berhasil (data dibulatkan 2 desimal).")
     except Exception as e:
         print(f"GAGAL Impor Data Normal: {e}")
 
@@ -42,20 +51,19 @@ def import_analyses():
     try:
         today = datetime.now()
         
-        # 1. Tentukan periode 3 bulan target sebelum bulan ini
+        # ==== Tentukan periode 3 bulan target sebelum bulan ini ====
         target_periods_ym = []
-        for i in range(1, 4): # Loop untuk 1, 2, dan 3 bulan yang lalu
+        for i in range(1, 4): 
             target_date = today - relativedelta(months=i)
-            target_periods_ym.append(target_date.strftime('%Y%m')) # Format YYYYMM
+            target_periods_ym.append(target_date.strftime('%Y%m'))
         
         target_periods_ym.sort() 
         print(f"INFO: Mencari file analisis untuk periode target: {target_periods_ym}")
 
-        # 2. Cari file yang cocok dengan periode target
+        # ==== Cari file yang cocok dengan periode target ====
         all_files_in_dir = os.listdir(PATH_ANALISIS)
         files_to_process = []
         for file_name in all_files_in_dir:
-            # Ekstrak periode YYYYMM dari nama file
             match = re.search(r'(\d{6})', file_name)
             if match and match.group(1) in target_periods_ym:
                 files_to_process.append(file_name)
@@ -65,8 +73,8 @@ def import_analyses():
             return
 
         print(f"File yang akan diproses: {sorted(files_to_process)}")
-        
-        # 3. Proses file yang ditemukan (logika ini sebagian besar tetap sama)
+
+        # ==== Proses file yang ditemukan ====
         all_data = []
         periods_to_update_db = []
         for file_name in sorted(files_to_process):
@@ -74,18 +82,24 @@ def import_analyses():
             if not match: continue
             
             date_str = match.group(1)
-            period = f"{date_str[:4]}-{date_str[4:]}" # Format YYYY-MM
+            period = f"{date_str[:4]}-{date_str[4:]}"
             periods_to_update_db.append(period)
 
             file_path = os.path.join(PATH_ANALISIS, file_name)
             df = pd.read_excel(file_path, engine='xlrd')
             df.rename(columns={'LON': 'longitude', 'LAT': 'latitude', 'CH': 'ch'}, inplace=True)
+
+            cols_to_round = ['latitude', 'longitude', 'ch']
+            for col in cols_to_round:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[cols_to_round] = df[cols_to_round].round(2)
+
             df['data_period'] = period
             all_data.append(df[['latitude', 'longitude', 'ch', 'data_period']])
 
         final_df = pd.concat(all_data, ignore_index=True)
 
-        # 4. Lakukan "hapus-lalu-tambah" yang aman dalam transaksi
+        # ==== Lakukan "hapus-lalu-tambah" yang aman dalam transaksi ====
         with engine.connect() as connection:
             with connection.begin() as transaction:
                 try:
@@ -95,7 +109,7 @@ def import_analyses():
                     connection.execute(delete_query, {'periods': unique_periods})
 
                     print(f"  - Memasukkan {len(final_df)} baris data baru...")
-                    final_df.to_sql('climate_analyses', con=connection, if_exists='replace', index=False)
+                    final_df.to_sql('climate_analyses', con=connection, if_exists='append', index=False)
                     
                     transaction.commit()
                     print("  - Transaksi berhasil.")
@@ -104,7 +118,7 @@ def import_analyses():
                     transaction.rollback()
                     raise
 
-        print(f"BERHASIL: Impor data analisis untuk 3 bulan terakhir telah selesai.")
+        print(f"BERHASIL: Impor data analisis untuk 3 bulan terakhir telah selesai (data dibulatkan 2 desimal).")
     except Exception as e:
         print(f"GAGAL: Terjadi kesalahan besar pada proses impor analisis: {e}")
 
@@ -139,6 +153,12 @@ def import_predictions():
             file_path = os.path.join(PATH_PREDIKSI, file_name)
             df = pd.read_csv(file_path, skiprows=1, header=None, names=['NOGRID', 'LON', 'LAT', 'VAL', 'MIN', 'MAX'])
             df.rename(columns={'LON': 'longitude', 'LAT': 'latitude', 'VAL': 'val'}, inplace=True)
+            
+            cols_to_round = ['longitude', 'latitude', 'val', 'MIN', 'MAX']
+            for col in cols_to_round:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[cols_to_round] = df[cols_to_round].round(2)
+            
             df['prediction_period'] = period
             df['prediction_version'] = version
             all_data.append(df)
@@ -149,12 +169,10 @@ def import_predictions():
 
         final_df = pd.concat(all_data, ignore_index=True)
 
-        # --- LOGIKA DIUBAH KEMBALI MENJADI 'REPLACE' ---
-        # Ini akan menghapus tabel lama dan membuat yang baru hanya dengan data bulan ini.
         print(f"\MENGHAPUS SELURUH DATA LAMA di tabel 'climate_predictions' dan mengunggah {len(final_df)} baris data baru...")
         final_df.to_sql('climate_predictions', con=engine, if_exists='replace', index=False)
 
-        print(f"BERHASIL: Tabel 'climate_predictions' telah diganti total dengan data prediksi untuk bulan {current_month}.")
+        print(f"BERHASIL: Tabel 'climate_predictions' telah diganti total dengan data prediksi untuk bulan {current_month} (data dibulatkan 2 desimal).")
 
     except Exception as e:
         print(f"GAGAL: Terjadi kesalahan pada proses impor prediksi: {e}")

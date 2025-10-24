@@ -16,39 +16,39 @@ class ChatController extends Controller
         return view('chat');
     }
 
+    // --- FUNGSI GETNORMALDATA (DIMODIFIKASI) ---
     private function getNormalData($lat, $lon, $userInput)
     {
         $months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
         $avg_months_sql = implode(', ', array_map(fn($m) => "AVG(`$m`) as `$m`", $months));
 
-        // --- Pencarian berdasarkan koordinat ---
+        // --- Pencarian berdasarkan koordinat (TETAP SAMA) ---
         if ($lat && $lon) {
-            $data = ClimateNormal::select('*', DB::raw("SQRT(POW(latitude - ($lat), 2) + POW(longitude - ($lon), 2)) AS distance"))
-                ->orderBy('distance', 'asc')->first();
-        } else {
-            // --- Pencarian berdasarkan nama ---
-            $isProvince = ClimateNormal::whereRaw('LOWER(province) = ?', [strtolower($userInput)])->exists();
+            $point_string = "ST_GeomFromText('POINT($lon $lat)')";
 
-            if ($isProvince) {
-                // --- LOGIKA PROVINSI (DIPERBAIKI DENGAN selectRaw) ---
-                $data = ClimateNormal::selectRaw(
-                    "? as province, NULL as regency, AVG(latitude) as latitude, AVG(longitude) as longitude, $avg_months_sql",
-                    [$userInput] // Mengikat userInput ke '?' pertama
-                )
-                    ->whereRaw('LOWER(province) = ?', [strtolower($userInput)])
-                    ->first();
-            } else {
-                // --- LOGIKA KABUPATEN/KOTA (DIPERBAIKI DENGAN selectRaw) ---
-                $data = ClimateNormal::selectRaw(
-                    "MAX(province) as province, ? as regency, AVG(latitude) as latitude, AVG(longitude) as longitude, $avg_months_sql",
-                    [$userInput] // Mengikat userInput ke '?' pertama
-                )
-                    ->where('regency', 'LIKE', "%$userInput%")
-                    ->first();
-            }
+            $data = ClimateNormal::select('*')
+                // 2. Gunakan orderByRaw() dengan string yang tadi
+                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+                ->first();
+        } else {
+            // --- Pencarian HANYA berdasarkan KECAMATAN (DIPERBAIKI) ---
+            $userInputLower = strtolower($userInput);
+
+            // Langsung lakukan agregasi (AVG) berdasarkan KECAMATAN
+            // Kita tambahkan MAX(regency) dan MAX(province) untuk data lokasi
+            $data = ClimateNormal::selectRaw(
+                "MAX(province) as province, MAX(regency) as regency, ? as kecamatan, AVG(latitude) as latitude, AVG(longitude) as longitude, $avg_months_sql",
+                [$userInput] // Mengikat userInput ke '?' (sebagai nama kecamatan)
+            )
+                ->whereRaw('LOWER(kecamatan) = ?', [$userInputLower])
+                ->first();
+
+            // Jika $data->latitude NULL, berarti whereRaw tidak menemukan kecamatannya
+            // $data akan tetap ada tapi kolomnya (latitude, etc.) akan NULL.
         }
 
         // Validasi akhir jika data tidak ditemukan sama sekali
+        // (Ini akan menangkap jika kecamatan tidak ditemukan)
         if (!$data || is_null($data->latitude)) {
             return null;
         }
@@ -59,14 +59,15 @@ class ChatController extends Controller
         }
 
         return [
-            'locationName' => ucwords(strtolower($data->regency ?: $data->province)),
+            // --- Tampilan Nama Lokasi Diperbaiki (Kecamatan, Kabupaten) ---
+            'locationName' => ucwords(strtolower($data->kecamatan . ', ' . $data->regency)),
             'data' => $dataValues,
             'coords' => ['lat' => $data->latitude, 'lon' => $data->longitude]
         ];
     }
 
     // --- FUNGSI UNTUK MENDAPATKAN DATA ANALISIS ---
-    private function getAnalysisData($lat, $lon, $normal_bounds_lookup) // Tambahkan parameter baru
+    private function getAnalysisData($lat, $lon, $normal_bounds_lookup)
     {
         $periods = ClimateAnalysis::select('data_period')->distinct()
             ->orderBy('data_period', 'desc')->limit(3)->get()->pluck('data_period')->reverse()->values();
@@ -76,26 +77,29 @@ class ChatController extends Controller
 
         $labels = [];
         $data = [];
-        $upper_bounds = []; // Array baru untuk batas atas
-        $lower_bounds = []; // Array baru untuk batas bawah
+        $upper_bounds = [];
+        $lower_bounds = [];
+
+        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
 
         foreach ($periods as $period) {
-            $nearest = ClimateAnalysis::select('ch', DB::raw("SQRT(POW(latitude - ($lat), 2) + POW(longitude - ($lon), 2)) AS distance"))
-                ->where('data_period', $period)->orderBy('distance', 'asc')->first();
+
+            // 2. Gunakan orderByRaw() dengan string yang tadi
+            $nearest = ClimateAnalysis::select('ch')
+                ->where('data_period', $period)
+                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+                ->first();
 
             if ($nearest) {
                 $labels[] = $period;
                 $data[] = round($nearest->ch, 2);
 
-                // --- TAMBAHAN: CARI BATAS NORMAL SESUAI BULAN ---
-                $month_number = (int)date('n', strtotime($period));
+                $month_number = (int) date('n', strtotime($period));
                 $upper_bounds[] = $normal_bounds_lookup[$month_number]['upper'];
                 $lower_bounds[] = $normal_bounds_lookup[$month_number]['lower'];
-                // ------------------------------------------------
             }
         }
 
-        // Tambahkan data batas ke return value
         return count($labels) >= 2 ? [
             'labels' => $labels,
             'data' => $data,
@@ -108,16 +112,24 @@ class ChatController extends Controller
     private function getPredictionData($lat, $lon)
     {
         $periods = ClimatePrediction::select('prediction_period')->distinct()
-            ->orderBy('prediction_period', 'asc')->limit(6)->get()->pluck('prediction_period'); // Ambil 7 bulan
+            ->orderBy('prediction_period', 'asc')->limit(6)->get()->pluck('prediction_period');
 
         if ($periods->isEmpty())
             return null;
 
         $labels = [];
         $data = [];
+
+        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
+
         foreach ($periods as $period) {
-            $nearest = ClimatePrediction::select('val', DB::raw("SQRT(POW(latitude - ($lat), 2) + POW(longitude - ($lon), 2)) AS distance"))
-                ->where('prediction_period', $period)->orderBy('distance', 'asc')->first();
+
+            // 2. Gunakan orderByRaw() dengan string yang tadi
+            $nearest = ClimatePrediction::select('val')
+                ->where('prediction_period', $period)
+                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+                ->first();
+
             if ($nearest) {
                 $labels[] = $period;
                 $data[] = round($nearest->val, 2);
@@ -260,6 +272,7 @@ class ChatController extends Controller
     // --- FUNGSI UTAMA (DIMODIFIKASI) ---
     public function getClimateData(Request $request)
     {
+        // Validasi input tetap 'kecamatan'
         $validator = Validator::make($request->all(), ['kecamatan' => 'required|string']);
         if ($validator->fails()) {
             return response()->json(['error' => $validator->errors()->first()], 400);
@@ -270,18 +283,29 @@ class ChatController extends Controller
         $targetLon = null;
         $locationName = $userInput;
 
-        if (preg_match('/^[-]?\d{1,3}\.\d+,\s*[-]?\d{1,3}\.\d+$/', $userInput)) {
-            list($lat, $lon) = array_map('trim', explode(',', $userInput));
+        // --- [PERBAIKAN 1: REGEX UNTUK KOORDINAT] ---
+        // Regex ini sekarang menerima format "lat, lon" ATAU "(lat, lon)"
+        // dan bisa menangani angka bulat atau desimal
+        if (preg_match('/^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/', $userInput, $matches)) {
+            // $matches[1] adalah Latitude
+            // $matches[2] adalah Longitude
+            $lat = $matches[1];
+            $lon = $matches[2];
+
             $normalData = $this->getNormalData($lat, $lon, null);
         } else {
+            // Pencarian nama HANYA akan mencari KECAMATAN
             $normalData = $this->getNormalData(null, null, $userInput);
         }
+        // --- [AKHIR PERBAIKAN 1] ---
 
+
+        // --- PESAN ERROR DIPERBAIKI ---
         if (!$normalData) {
-            return response()->json(['error' => 'Data Normal untuk "' . $userInput . '" tidak ditemukan.'], 404);
+            // Berikan pesan error yang lebih spesifik
+            return response()->json(['error' => 'Data untuk "' . $userInput . '" tidak ditemukan. Pastikan nama kecamatan atau format koordinat (lat, lon) benar.'], 404);
         }
 
-        // --- PENGAMBILAN KOORDINAT DARI DATA NORMAL ---
         $targetLat = $normalData['coords']['lat'];
         $targetLon = $normalData['coords']['lon'];
         $locationName = $normalData['locationName'];
@@ -299,6 +323,7 @@ class ChatController extends Controller
         }
         // --------------------------------------------------------------------
 
+        // Sekarang $targetLat dan $targetLon sudah terisi dengan benar
         $analysisData = $this->getAnalysisData($targetLat, $targetLon, $normal_bounds_lookup);
         $predictionData = $this->getPredictionData($targetLat, $targetLon);
 
