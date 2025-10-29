@@ -57,6 +57,7 @@
             <div class="chat-input-area">
                 <form id="chat-form" autocomplete="off">
                     <div class="input-wrapper">
+                        <div id="autocomplete-results" class="autocomplete-results"></div>
                         <input id="chat-input" type="text"
                             placeholder="masukkan nama Kecamatan atau koordinat (lat, lon)" required />
                         <button id="send-btn" type="submit" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg"
@@ -83,6 +84,11 @@
         let chatHistory = [];
         let currentSession = null;
         let chartInstances = {};
+        let loadingInterval;
+
+        const autocompleteResults = document.getElementById('autocomplete-results');
+        let debounceTimer; // Untuk timer debounce
+        const coordinateRegex = /^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/;
 
         // --- FUNGSI MANAJEMEN HISTORY & UI ---
         function resetChatView() {
@@ -110,19 +116,26 @@
         }
 
         function renderSession(session) {
-            // Fungsi ini mungkin perlu penyesuaian jika Anda ingin history chat juga menampilkan narasi
-            // Untuk saat ini, kita biarkan agar fungsionalitas utama tidak terganggu
             resetChatView();
             emptyState.style.display = 'none';
             chatMessages.style.display = 'flex';
             currentSession = session;
             session.messages.forEach(msg => {
-                if (msg.type === 'message') addMessage(msg.text, msg.sender, false);
-                else if (msg.type === 'chart_normal') addNormalChart(msg.payload, msg.locationName, false);
-                else if (msg.type === 'chart_analysis') addAnalysisChart(msg.payload, false);
-                else if (msg.type === 'chart_prediction') addPredictionChart(msg.payload, false);
+                if (msg.type === 'message') {
+                    addMessage(msg.text, msg.sender, false);
+                } else if (msg.type === 'narrative') {
+                    addNarrative(msg.html, false);
+                } else if (msg.type === 'chart_normal') {
+                    addNormalChart(msg.payload, msg.locationName, false, msg.chartId);
+                } else if (msg.type === 'chart_analysis') {
+                    addAnalysisChart(msg.payload, false, msg.chartId);
+                } else if (msg.type === 'chart_das_prediction') {
+                addDasPredictionChart(msg.payload, false, msg.chartId);
+                } else if (msg.type === 'chart_prediction') {
+                    addPredictionChart(msg.payload, false, msg.chartId);
+                }
             });
-            updateDownloadButtonState();
+        updateDownloadButtonState();
         }
 
         function updateDownloadButtonState() {
@@ -187,15 +200,15 @@
 
         // --- FUNGSI-FUNGSI GRAFIK ---
 
-        function addNormalChart(payload, locationName, save = true) {
-            const chartId = `chart-norm-${Date.now()}`;
+        function addNormalChart(payload, locationName, save = true, existingChartId = null) {
+            const chartId = existingChartId || `chart-norm-${Date.now()}`;
             const title = `Data Rata-Rata Curah Hujan (1991-2020)`;
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_normal',
                 payload,
                 locationName,
-                chartId, // <-- Tambahkan ini
-                title // <-- Tambahkan ini juga
+                chartId,
+                title
             });
             const canvas = createChartBubble(chartId, title);
 
@@ -261,13 +274,13 @@
             });
         }
 
-        function addAnalysisChart(payload, save = true) {
-            const chartId = `chart-analysis-${Date.now()}`;
+        function addAnalysisChart(payload, save = true, existingChartId = null) {
+            const chartId = existingChartId || `chart-analysis-${Date.now()}`;
             const title = `Data Analisis Curah Hujan (${payload.labels.length} Bulan Terakhir)`;
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_analysis',
                 payload,
-                chartId, // <-- Tambahkan ini
+                chartId,
                 title
             });
             const canvas = createChartBubble(chartId, title);
@@ -289,11 +302,11 @@
                                 const lowerBound = payload.lower_bounds[index];
 
                                 if (value > upperBound) {
-                                    return 'rgba(40, 167, 69, 0.7)'; // Hijau
+                                    return 'rgba(35, 129, 41, 1)';
                                 } else if (value < lowerBound) {
-                                    return 'rgba(139, 69, 19, 0.7)'; // Coklat
+                                    return 'rgba(168, 91, 1, 1)';
                                 } else {
-                                    return 'rgba(255, 205, 86, 0.7)'; // Kuning
+                                    return 'rgba(254, 255, 0, 1)';
                                 }
                             },
                             borderColor: function (context) {
@@ -303,27 +316,28 @@
                                 const lowerBound = payload.lower_bounds[index];
 
                                 if (value > upperBound) {
-                                    return 'rgba(40, 167, 69, 1)'; // Hijau Pekat
+                                    return 'rgba(35, 129, 41, 1)';
                                 } else if (value < lowerBound) {
-                                    return 'rgba(139, 69, 19, 1)'; // Coklat Pekat
+                                    return 'rgba(168, 91, 1, 1)';
                                 } else {
-                                    return 'rgba(255, 205, 86, 1)'; // Kuning Pekat
+                                    return 'rgba(254, 255, 0, 1)';
                                 }
                             },
                             borderWidth: 1,
-                            order: 2 // Pastikan bar di render di belakang garis
+                            order: 2
                         },
                         // DATASET 2: Garis batas atas
                         {
                             label: 'Batas Atas Normal',
                             data: payload.upper_bounds,
-                            type: 'line', // Tipe dataset ini adalah garis
-                            borderColor: 'rgba(40, 167, 69, 0.8)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            fill: false,
-                            pointRadius: 0,
-                            tension: 0.4,
+                            type: 'line',
+                            showLine: false,
+                            pointStyle: 'triangle',
+                            pointRadius: 6,
+                            pointBorderWidth: 2,
+                            pointBackgroundColor: 'rgba(8, 200, 11, 0.8)',
+                            pointBorderColor: 'rgba(8, 200, 11, 0.8)',
+                            // tension: 0.4,
                             order: 1 // Pastikan garis di render di depan bar
                         },
                         // DATASET 3: Garis batas bawah
@@ -331,12 +345,14 @@
                             label: 'Batas Bawah Normal',
                             data: payload.lower_bounds,
                             type: 'line', // Tipe dataset ini adalah garis
-                            borderColor: 'rgba(139, 69, 19, 0.8)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            fill: false,
-                            pointRadius: 0,
-                            tension: 0.4,
+                            showLine: false,
+                            pointStyle: 'triangle',
+                            rotation: 180,
+                            pointRadius: 6,
+                            pointBorderWidth: 2,
+                            pointBackgroundColor: 'rgba(92, 39, 1, 0.8)',
+                            pointBorderColor: 'rgba(92, 39, 1, 0.8)',
+                            // tension: 0.4,
                             order: 1 // Pastikan garis di render di depan bar
                         }
                     ]
@@ -356,15 +372,107 @@
                     plugins: {
                         // Tampilkan semua label di legenda
                         legend: {
-                            display: true
+                            display: true,
+                            labels: {
+                                usePointStyle: true,
+                                font: {
+                                    size: 14
+                                },
+                                generateLabels: function (chart) {
+                                    const datasets = chart.data.datasets;
+                                    const legendItems = [];
+
+                                    // Label untuk Batas Atas Normal
+                                    legendItems.push({
+                                        text: datasets[1].label,
+                                        fillStyle: datasets[1].pointBackgroundColor,
+                                        strokeStyle: datasets[1].pointBorderColor,
+                                        lineWidth: datasets[1].pointBorderWidth,
+                                        pointStyle: datasets[1].pointStyle,
+                                        rotation: datasets[1].rotation || 0,
+                                        hidden: !chart.isDatasetVisible(1),
+                                        index: 1
+                                    });
+
+                                    // Label untuk Batas Bawah Normal
+                                    legendItems.push({
+                                        text: datasets[2].label,
+                                        fillStyle: datasets[2].pointBackgroundColor,
+                                        strokeStyle: datasets[2].pointBorderColor,
+                                        lineWidth: datasets[2].pointBorderWidth,
+                                        pointStyle: datasets[2].pointStyle,
+                                        rotation: datasets[2].rotation || 0,
+                                        hidden: !chart.isDatasetVisible(2),
+                                        index: 2
+                                    });
+
+                                    legendItems.push({
+                                        text: datasets[0].label,
+                                        fillStyle: 'transparent',
+                                        strokeStyle: 'rgba(134, 134, 134, 1)',
+                                        lineWidth: 1,
+                                        pointStyle: 'rect',
+                                        hidden: !chart.isDatasetVisible(0),
+                                        index: 0
+                                    });
+
+                                    return legendItems;
+                                }
+                            }
                         }
                     }
                 }
             });
         }
 
-        function addPredictionChart(payload, save = true) {
-            const chartId = `chart-pred-${Date.now()}`;
+        function addDasPredictionChart(payload, save = true, existingChartId = null) {
+            const chartId = existingChartId || `chart-das-pred-${Date.now()}`;
+            const title = `Data Prediksi Curah Hujan Dasarian (${payload.labels.length} Periode ke Depan)`;
+
+            if (save && currentSession) currentSession.messages.push({
+                type: 'chart_das_prediction', // <-- Tipe baru
+                payload,
+                chartId,
+                title
+            });
+
+            const canvas = createChartBubble(chartId, title);
+
+            chartInstances[chartId] = new Chart(canvas.getContext('2d'), {
+                type: 'line', // Anda bisa juga gunakan 'bar' jika suka
+                data: {
+                    labels: payload.labels,
+                    datasets: [{
+                        label: 'Curah Hujan Prediksi (mm)',
+                        data: payload.data,
+                        fill: false,
+                        borderColor: 'rgb(255, 159, 64)', // Warna oranye
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Curah Hujan (mm)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        function addPredictionChart(payload, save = true, existingChartId = null) {
+            const chartId = existingChartId || `chart-pred-${Date.now()}`;
             const title = `Data Prediksi Curah Hujan (${payload.labels.length} Bulan ke Depan)`;
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_prediction',
@@ -407,6 +515,81 @@
             });
         }
 
+        function debounce(func, delay = 300) {
+            return function (...args) {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    func.apply(this, args);
+                }, delay);
+            };
+        }
+
+        async function fetchAutocomplete() {
+            const query = chatInput.value.trim();
+
+            // 1. Jangan cari jika input kosong, terlalu pendek, atau
+            //    jika itu adalah koordinat (cocok dengan regex)
+            if (coordinateRegex.test(query)) {
+                autocompleteResults.style.display = 'none';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/search-kecamatan?term=${encodeURIComponent(query)}`);
+                const results = await res.json();
+                renderAutocomplete(results);
+            } catch (err) {
+                console.error('Gagal fetch autocomplete:', err);
+                autocompleteResults.style.display = 'none';
+            }
+        }
+
+        function renderAutocomplete(results) {
+            // Bersihkan hasil lama
+            autocompleteResults.innerHTML = '';
+
+            if (results.length === 0) {
+                autocompleteResults.style.display = 'none';
+                return;
+            }
+
+            // Buat elemen <div> untuk setiap hasil
+            results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = 'autocomplete-item';
+                item.textContent = result.display;
+
+                // Tambahkan event listener untuk klik
+                item.addEventListener('click', () => {
+                    chatInput.value = result.display;
+                    autocompleteResults.style.display = 'none'; // Sembunyikan
+                    chatForm.requestSubmit();
+                });
+
+                autocompleteResults.appendChild(item);
+            });
+
+            // Tampilkan container
+            autocompleteResults.style.display = 'block';
+        }
+
+        chatInput.addEventListener('keyup', debounce(fetchAutocomplete, 300));
+
+        // 2. Sembunyikan hasil jika user klik di mana saja
+        document.addEventListener('click', (e) => {
+            // Jika yang diklik BUKAN input dan BUKAN hasil
+            if (e.target !== chatInput && e.target.closest('#autocomplete-results') === null) {
+                autocompleteResults.style.display = 'none';
+            }
+        });
+
+        chatInput.addEventListener('focus', () => {
+            // Jika sudah ada isinya dan ada hasil, tampilkan lagi
+            if (chatInput.value.length > 1 && autocompleteResults.childElementCount > 0) {
+                autocompleteResults.style.display = 'block';
+            }
+        });
+
         // --- EVENT LISTENER UTAMA (DIMODIFIKASI) ---
         chatForm.addEventListener('submit', async function (e) {
             e.preventDefault();
@@ -423,14 +606,77 @@
                 messages: []
             };
 
+            autocompleteResults.style.display = 'none';
+
+            if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) {
+                chatHistory.unshift(currentSession);
+            }
+            resetChatView();
+            currentSession = {
+                id: Date.now(),
+                title: userInput.length > 30 ? userInput.substring(0, 30) + '...' : userInput,
+                messages: []
+            };
+
             addMessage(userInput, 'user');
             chatInput.value = '';
-            addMessage('<div class="loader"></div>', 'bot', false);
+
+            const initialLoaderHTML =
+                // untuk loader dengan dots
+                // `<div class="loader-container">
+                //     <div class="loader-dots">
+                //         <span></span>
+                //         <span></span>
+                //         <span></span>
+                //     </div> 
+                //     <span id="loading-text">Mencari data untuk <strong>${userInput}</strong>...</span>
+                // </div>`;
+
+                // untuk loader dengan bars
+                `<div class="loader-container">
+                    <div class="loader-bars">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div> 
+                    <span id="loading-text">Mencari data untuk <strong>${userInput}</strong>...</span>
+                </div>`;
+
+
+            addMessage(initialLoaderHTML, 'bot', false);
+
+            // Definisikan teks yang akan berganti
+            const loadingMessages = [
+                'Mengambil data normal (1991-2020)...',
+                'Menganalisis data 3 bulan terakhir...',
+                'Menghitung data prediksi...',
+                'Menyiapkan visualisasi grafik...',
+                'Hampir selesai...'
+            ];
+            let messageIndex = 0;
+
+            // Hentikan interval lama jika (seharusnya) masih ada
+            if (loadingInterval) clearInterval(loadingInterval);
+
+            // Mulai interval baru untuk mengganti teks
+            loadingInterval = setInterval(() => {
+                const loadingSpan = document.getElementById('loading-text');
+                if (loadingSpan) {
+                    loadingSpan.innerHTML = loadingMessages[messageIndex % loadingMessages.length];
+                    messageIndex++;
+                }
+            }, 1800);
 
             try {
                 const res = await fetch(`/api/climate-data?kecamatan=${encodeURIComponent(userInput)}`);
                 const data = await res.json();
-                chatMessages.querySelector('.loader').parentElement.parentElement.remove();
+
+                clearInterval(loadingInterval);
+                const loaderElement = chatMessages.querySelector('.loader-container');
+                if (loaderElement) {
+                    loaderElement.parentElement.parentElement.remove();
+                }
 
                 if (data.error) {
                     // Tampilkan pesan error yang spesifik dari API
@@ -459,6 +705,13 @@
                         if (data.analysis.narrative) addNarrative(data.analysis.narrative);
                     }
 
+                    // Tampilkan Grafik & Narasi Prediksi Dasarian
+                    if (data.das_prediction && data.das_prediction.data) {
+                        anyDataFound = true;
+                        addDasPredictionChart(data.das_prediction);
+                        if (data.das_prediction.narrative) addNarrative(data.das_prediction.narrative);
+                    }
+
                     // Tampilkan Grafik & Narasi Prediksi
                     if (data.prediction && data.prediction.data) {
                         anyDataFound = true;
@@ -472,7 +725,12 @@
                     }
                 }
             } catch (err) {
-                if (chatMessages.querySelector('.loader')) chatMessages.querySelector('.loader').parentElement.parentElement.remove();
+                clearInterval(loadingInterval);
+                const loaderElement = chatMessages.querySelector('.loader-container');
+                if (loaderElement) {
+                    loaderElement.parentElement.parentElement.remove();
+                }
+
                 addMessage('Maaf, terjadi kesalahan pada server.', 'bot');
                 console.error(err);
             }
@@ -572,25 +830,9 @@
 
                 // --- Loop Melalui Setiap Pesan ---
                 for (const msg of currentSession.messages) {
-                    pdf.setFont(undefined, 'normal'); // Reset font style
+                    pdf.setFont(undefined, 'normal'); 
 
                     switch (msg.type) {
-                        // case 'message':
-                        //     const isUser = msg.sender === 'user';
-                        //     pdf.setFontSize(11);
-                        //     pdf.setTextColor(isUser ? 255 : 0, isUser ? 255 : 0, isUser ? 255 : 0); // Putih atau Hitam
-
-                        //     const textLines = pdf.splitTextToSize(msg.text, contentWidth - 10);
-                        //     const bubbleHeight = (textLines.length * 5) + 8;
-                        //     checkPageBreak(bubbleHeight);
-
-                        //     // Gambar gelembung chat
-                        //     pdf.setFillColor(isUser ? 59 : 236, isUser ? 130 : 236, isUser ? 246 : 238); // Biru atau Abu-abu
-                        //     pdf.roundedRect(margin, y, contentWidth, bubbleHeight, 3, 3, 'F');
-
-                        //     pdf.text(textLines, margin + 5, y + 7);
-                        //     y += bubbleHeight + 8;
-                        //     break;
 
                         case 'title':
                             pdf.setFontSize(14);
@@ -602,7 +844,7 @@
                             break;
 
                         case 'narrative':
-                            const plainText = msg.html.replace(/<[^>]*>?/gm, ''); // Hapus tag HTML
+                            const plainText = msg.html.replace(/<[^>]*>?/gm, '');
                             pdf.setFontSize(12);
                             pdf.setFont(undefined, 'normal');
                             pdf.setTextColor(80, 80, 80);
@@ -618,6 +860,7 @@
 
                         case 'chart_normal':
                         case 'chart_analysis':
+                        case 'chart_das_prediction':
                         case 'chart_prediction':
                             const chart = chartInstances[msg.chartId];
                             if (chart) {

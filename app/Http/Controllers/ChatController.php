@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\ClimateNormal;
 use App\Models\ClimateAnalysis;
 use App\Models\ClimatePrediction;
+use App\Models\ClimateDasPrediction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -17,34 +18,33 @@ class ChatController extends Controller
     }
 
     // --- FUNGSI GETNORMALDATA (DIMODIFIKASI) ---
-    private function getNormalData($lat, $lon, $userInput)
+    private function getNormalData($lat, $lon, $kecamatanInput, $regencyInput = null)
     {
         $months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
         $avg_months_sql = implode(', ', array_map(fn($m) => "AVG(`$m`) as `$m`", $months));
 
-        // --- Pencarian berdasarkan koordinat (TETAP SAMA) ---
+        // --- Pencarian berdasarkan koordinat ---
         if ($lat && $lon) {
             $point_string = "ST_GeomFromText('POINT($lon $lat)')";
 
             $data = ClimateNormal::select('*')
-                // 2. Gunakan orderByRaw() dengan string yang tadi
                 ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
                 ->first();
         } else {
-            // --- Pencarian HANYA berdasarkan KECAMATAN (DIPERBAIKI) ---
-            $userInputLower = strtolower($userInput);
+            $kecamatanLower = strtolower($kecamatanInput);
 
-            // Langsung lakukan agregasi (AVG) berdasarkan KECAMATAN
-            // Kita tambahkan MAX(regency) dan MAX(province) untuk data lokasi
-            $data = ClimateNormal::selectRaw(
+            $query = ClimateNormal::selectRaw(
                 "MAX(province) as province, MAX(regency) as regency, ? as kecamatan, AVG(latitude) as latitude, AVG(longitude) as longitude, $avg_months_sql",
-                [$userInput] // Mengikat userInput ke '?' (sebagai nama kecamatan)
+                [$kecamatanInput]
             )
-                ->whereRaw('LOWER(kecamatan) = ?', [$userInputLower])
-                ->first();
+                ->whereRaw('LOWER(kecamatan) = ?', [$kecamatanLower]);
 
-            // Jika $data->latitude NULL, berarti whereRaw tidak menemukan kecamatannya
-            // $data akan tetap ada tapi kolomnya (latitude, etc.) akan NULL.
+            if ($regencyInput) {
+                $query->whereRaw('LOWER(regency) = ?', [strtolower($regencyInput)]);
+            }
+
+            $data = $query->first();
+
         }
 
         // Validasi akhir jika data tidak ditemukan sama sekali
@@ -84,7 +84,6 @@ class ChatController extends Controller
 
         foreach ($periods as $period) {
 
-            // 2. Gunakan orderByRaw() dengan string yang tadi
             $nearest = ClimateAnalysis::select('ch')
                 ->where('data_period', $period)
                 ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
@@ -124,7 +123,6 @@ class ChatController extends Controller
 
         foreach ($periods as $period) {
 
-            // 2. Gunakan orderByRaw() dengan string yang tadi
             $nearest = ClimatePrediction::select('val')
                 ->where('prediction_period', $period)
                 ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
@@ -138,10 +136,81 @@ class ChatController extends Controller
         return !empty($labels) ? ['labels' => $labels, 'data' => $data] : null;
     }
 
+    private function getDasPredictionData($lat, $lon)
+    {
+        // 1. Cari versi prediksi terbaru yang ada di database
+        $latest_version = ClimateDasPrediction::select('prediction_version')
+                            ->distinct()
+                            ->orderBy('prediction_version', 'desc')
+                            ->first();
+
+        if (!$latest_version) return null; // Tidak ada data
+
+        // 2. Tentukan string dasarian hari ini (untuk perbandingan)
+        $today = now();
+        $day = $today->day;
+        $month = $today->month;
+        $year = $today->year;
+
+        if ($day <= 10) { // Das 1
+            $current_das_string = "$year-$month-1";
+        } elseif ($day <= 20) { // Das 2
+            $current_das_string = "$year-$month-2";
+        } else { // Das 3
+            $current_das_string = "$year-$month-3";
+        }
+
+        // 3. Ambil 3 periode dasarian BERIKUTNYA (>) dari hari ini,
+        //    sesuai dengan versi terbaru
+        $periods = ClimateDasPrediction::select('prediction_das_period')
+            ->where('prediction_version', $latest_version->prediction_version)
+            ->where('prediction_das_period', '>', $current_das_string) // Logika kunci: > (setelah hari ini)
+            ->distinct()
+            ->orderBy('prediction_das_period', 'asc')
+            ->limit(3)
+            ->get()->pluck('prediction_das_period');
+
+        if ($periods->isEmpty()) return null; // Tidak ada data prediksi baru
+
+        $labels = [];
+        $data = [];
+        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
+
+        foreach ($periods as $period) {
+            $nearest = ClimateDasPrediction::select('val')
+                ->where('prediction_version', $latest_version->prediction_version)
+                ->where('prediction_das_period', $period)
+                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+                ->first();
+
+            if ($nearest) {
+                // Ubah '2025-11-1' -> 'Das 1 Nov 2025'
+                $labels[] = $this->formatDasLabel($period);
+                $data[] = round($nearest->val, 2);
+            }
+        }
+        return !empty($labels) ? ['labels' => $labels, 'data' => $data] : null;
+    }
+
+    // --- Helper untuk memformat label dasarian ---
+    private function formatDasLabel($period_string)
+    {
+        try {
+            // $period_string = "2025-11-1"
+            $parts = explode('-', $period_string);
+            $date = \Carbon\Carbon::createFromDate($parts[0], $parts[1], 1);
+            $monthYear = $date->format('M Y'); // e.g., "Nov 2025"
+            $das = $parts[2];
+            return "Das $das $monthYear";
+        } catch (\Exception $e) {
+            return $period_string; // Fallback
+        }
+    }
+
     // --- FUNGSI UNTUK MEMANGGIL NARASI ---
     private function generateIntroNarrative($locationName)
     {
-        return "Informasi berikut menggambarkan kondisi curah hujan di wilayah <strong>{$locationName}</strong>. Data yang ditampilkan terdiri dari curah hujan normal tahunan, analisis curah hujan 3 bulan terakhir, serta prediksi curah hujan untuk beberapa bulan ke depan. Visualisasi ini diharapkan dapat membantu dalam memahami pola hujan, kondisi terkini, serta proyeksi cuaca untuk mendukung kegiatan masyarakat maupun perencanaan sektor terkait.";
+        return "Informasi berikut menggambarkan kondisi curah hujan di wilayah <strong>{$locationName}</strong>. Data yang ditampilkan terdiri dari curah hujan normal tahunan, analisis curah hujan 3 bulan terakhir, serta prediksi curah hujan untuk beberapa bulan ke depan. Visualisasi ini diharapkan dapat membantu dalam memahami pola hujan, kondisi terkini, serta prediksi cuaca untuk mendukung kegiatan masyarakat maupun perencanaan sektor terkait.";
     }
 
     private function generateNormalNarrative($normalData, $locationName)
@@ -268,6 +337,17 @@ class ChatController extends Controller
         return "Berdasarkan prediksi, curah hujan di <strong>{$locationName}</strong> untuk periode {$startMonth} hingga {$endMonth} diperkirakan akan berfluktuasi. Puncak curah hujan tertinggi diproyeksikan terjadi pada bulan <strong>{$peakMonth}</strong> dengan curah hujan sekitar " . round($maxRain) . " mm/bulan. Proyeksi ini menunjukkan bahwa wilayah <strong>{$locationName}</strong> kemungkinan akan memasuki musim hujan dengan intensitas bervariasi dalam beberapa bulan mendatang, sehingga perlu perhatian pada sektor pertanian, tata kelola air, dan potensi bencana hidrometeorologi.";
     }
 
+    private function generateDasPredictionNarrative($dasPredictionData, $locationName)
+    {
+        if (empty($dasPredictionData['data'])) return "";
+
+        $count = count($dasPredictionData['labels']);
+        $startLabel = $dasPredictionData['labels'][0];
+        $endLabel = $dasPredictionData['labels'][$count - 1];
+
+        return "Untuk prediksi jangka pendek, grafik ini menunjukkan prediksi curah hujan dasarian (10 harian) di <strong>{$locationName}</strong> untuk 3 periode ke depan, dari <strong>{$startLabel}</strong> hingga <strong>{$endLabel}</strong>. Data ini memberikan gambaran lebih rinci mengenai potensi hujan dalam 30 hari ke depan.";
+    }
+
 
     // --- FUNGSI UTAMA (DIMODIFIKASI) ---
     public function getClimateData(Request $request)
@@ -284,18 +364,18 @@ class ChatController extends Controller
         $locationName = $userInput;
 
         // --- [PERBAIKAN 1: REGEX UNTUK KOORDINAT] ---
-        // Regex ini sekarang menerima format "lat, lon" ATAU "(lat, lon)"
-        // dan bisa menangani angka bulat atau desimal
+
         if (preg_match('/^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/', $userInput, $matches)) {
-            // $matches[1] adalah Latitude
-            // $matches[2] adalah Longitude
             $lat = $matches[1];
             $lon = $matches[2];
 
-            $normalData = $this->getNormalData($lat, $lon, null);
+            $normalData = $this->getNormalData($lat, $lon, null, null);
         } else {
+            $parts = array_map('trim', explode(',', $userInput));
+            $kecamatan = $parts[0];
+            $regency = $parts[1] ?? null; // Ambil kabupaten jika ada
             // Pencarian nama HANYA akan mencari KECAMATAN
-            $normalData = $this->getNormalData(null, null, $userInput);
+            $normalData = $this->getNormalData(null, null, $kecamatan, $regency);
         }
         // --- [AKHIR PERBAIKAN 1] ---
 
@@ -325,12 +405,14 @@ class ChatController extends Controller
 
         // Sekarang $targetLat dan $targetLon sudah terisi dengan benar
         $analysisData = $this->getAnalysisData($targetLat, $targetLon, $normal_bounds_lookup);
+        $dasPredictionData = $this->getDasPredictionData($targetLat, $targetLon);
         $predictionData = $this->getPredictionData($targetLat, $targetLon);
 
         // --- PEMANGGILAN FUNGSI NARASI ---
         $introNarrative = $this->generateIntroNarrative($locationName);
         $normalNarrative = $this->generateNormalNarrative($normalData, $locationName);
         $analysisNarrative = $analysisData ? $this->generateAnalysisNarrative($analysisData, $locationName) : null;
+        $dasPredictionNarrative = $dasPredictionData ? $this->generateDasPredictionNarrative($dasPredictionData, $locationName) : null;
         $predictionNarrative = $predictionData ? $this->generatePredictionNarrative($predictionData, $locationName) : null;
 
         // --- PEMANGGILAN DATA UNTUK 24 BULAN ---
@@ -355,7 +437,39 @@ class ChatController extends Controller
                 'narrative' => $normalNarrative,
             ],
             'analysis' => $analysisData ? array_merge($analysisData, ['narrative' => $analysisNarrative]) : null,
+            'das_prediction' => $dasPredictionData ? array_merge($dasPredictionData, ['narrative' => $dasPredictionNarrative]) : null,
             'prediction' => $predictionData ? array_merge($predictionData, ['narrative' => $predictionNarrative]) : null,
         ]);
+    }
+
+    // di ChatController.php
+    public function searchKecamatan(Request $request)
+    {
+        $term = $request->query('term');
+        if (empty($term) || strlen($term) < 2) {
+            return response()->json([]);
+        }
+
+        // 1. Ambil 'kecamatan' DAN 'regency'
+        $data = ClimateNormal::select('kecamatan', 'regency')
+            ->where('kecamatan', 'LIKE', $term . '%')
+            ->distinct() // Ambil pasangan unik
+            ->limit(10)
+            ->get();
+
+        // 2. Format menjadi OBJEK JSON (BUKAN STRING)
+        $results = $data->map(function ($item) {
+            $kecamatan = ucwords(strtolower($item->kecamatan));
+            $regency = ucwords(strtolower($item->regency));
+
+            return [
+                // 'value' -> data yang akan masuk ke input box
+                'value' => $kecamatan,
+                // 'display' -> data yang akan tampil di dropdown
+                'display' => $kecamatan . ', ' . $regency
+            ];
+        });
+
+        return response()->json($results);
     }
 }
