@@ -210,7 +210,7 @@ class ChatController extends Controller
     // --- FUNGSI UNTUK MEMANGGIL NARASI ---
     private function generateIntroNarrative($locationName)
     {
-        return "Informasi berikut menggambarkan kondisi curah hujan di wilayah <strong>{$locationName}</strong>. Data yang ditampilkan terdiri dari curah hujan normal tahunan, analisis curah hujan 3 bulan terakhir, serta prediksi curah hujan untuk beberapa bulan ke depan. Visualisasi ini diharapkan dapat membantu dalam memahami pola hujan, kondisi terkini, serta prediksi cuaca untuk mendukung kegiatan masyarakat maupun perencanaan sektor terkait.";
+        return "Informasi berikut menggambarkan kondisi curah hujan di wilayah Kecamatan <strong>{$locationName}</strong>. Data yang ditampilkan terdiri dari curah hujan normal, analisis curah hujan 3 bulan terakhir, serta prediksi curah hujan untuk beberapa bulan ke depan. Visualisasi ini diharapkan dapat membantu dalam memahami pola hujan yang umumnya terjadi, kondisi curah hujan terkini, serta prediksi curah hujan beberapa bulan ke depan untuk mendukung kegiatan masyarakat maupun perencanaan sektor terkait.";
     }
 
     private function generateNormalNarrative($normalData, $locationName)
@@ -237,7 +237,7 @@ class ChatController extends Controller
                 $dryMonths[] = $monthNames[$index];
         }
 
-        $narrative = "Grafik ini menunjukkan rata-rata pola curah hujan normal di <strong>{$locationName}</strong> sepanjang tahun. ";
+        $narrative = "Grafik ini menunjukkan pola curah hujan bulanan yang umumnya terjadi di <strong>{$locationName}</strong> sepanjang tahun. ";
 
         if (!empty($rainyMonths)) {
             $narrative .= "Tampak bahwa periode dengan curah hujan tinggi umumnya terjadi pada bulan " . implode(', ', $rainyMonths) . ", dengan puncak hujan sekitar <strong>{$peakMonth}</strong> yang mencapai " . round($maxRain) . " mm/bulan. ";
@@ -284,7 +284,7 @@ class ChatController extends Controller
         }
 
         // 3. Bangun kalimat narasi secara dinamis
-        $narrative = "Grafik analisis ini membandingkan curah hujan aktual di <strong>{$locationName}</strong> selama {$num_real_points} bulan terakhir terhadap rentang kondisi normalnya. Warna pada diagram menunjukkan statusnya: <strong>hijau (di atas normal)</strong>, <strong>kuning (normal)</strong>, dan <strong>coklat (di bawah normal)</strong>.<br><br>";
+        $narrative = "Grafik analisis ini membandingkan curah hujan aktual di Kecamatan <strong>{$locationName}</strong> selama {$num_real_points} bulan terakhir terhadap rentang kondisi normalnya. Warna pada diagram menunjukkan statusnya: <strong>hijau (di atas normal)</strong>, <strong>kuning (normal)</strong>, dan <strong>coklat (di bawah normal)</strong>.<br><br>";
 
         $summary_parts = [];
         if (!empty($normal_months)) {

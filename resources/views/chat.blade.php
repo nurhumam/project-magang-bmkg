@@ -86,11 +86,55 @@
         let chartInstances = {};
         let loadingInterval;
 
+        const bmkgLogo = new Image();
+        bmkgLogo.src = "{{ asset('images/logo-bmkg.png') }}";
+        let bmkgLogoLoaded = false;
+        bmkgLogo.onload = () => {
+            bmkgLogoLoaded = true;
+        };
+
         const autocompleteResults = document.getElementById('autocomplete-results');
         let debounceTimer; // Untuk timer debounce
         const coordinateRegex = /^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/;
 
-        // --- FUNGSI MANAJEMEN HISTORY & UI ---
+        // ... (tepat setelah blok pre-load logo di atas)
+
+        // --- BARU: Definisikan Plugin Logo Global ---
+        const bmkgLogoPlugin = {
+            id: 'bmkgLogoPlugin',
+            afterDraw: (chart, args, options) => {
+                if (bmkgLogoLoaded) {
+                    const ctx = chart.ctx;
+                    const chartArea = chart.chartArea; // Tetap gunakan ini untuk referensi
+
+                    const logoWidth = 55;
+                    const logoHeight = 55;
+                    const padding = 40; // Jarak dari tepi area chart
+
+                    // --- PERBAIKAN DI SINI: Sesuaikan posisi X dan Y ---
+                    // Posisi logo di kiri atas, di luar area plot, mendekati padding atas
+                    // Kita bisa menggunakan `chart.options.layout.padding.left` dan `chart.options.layout.padding.top`
+                    // Atau cukup hardcode padding dari tepi canvas jika layout Anda sudah konsisten.
+                    // const paddingX = 15; // Jarak dari tepi kiri canvas
+                    // const paddingY = 5; // Jarak dari tepi atas canvas (di bawah title, di atas legend jika legend di atas)
+
+                    const x = chartArea.left - 55;
+                    const y = chartArea.top - 70;
+                    // --- AKHIR PERBAIKAN ---
+
+                    ctx.save();
+                    ctx.globalAlpha = 1.0; // Kembali ke solid jika ingin terlihat jelas seperti logo
+
+                    ctx.drawImage(bmkgLogo, x, y, logoWidth, logoHeight);
+
+                    ctx.restore();
+                }
+            }
+        };
+
+        Chart.register(bmkgLogoPlugin);
+
+        // --- FUNGSI MANAJEMAN HISTORY & UI ---
         function resetChatView() {
             chatMessages.innerHTML = '';
             chatMessages.style.display = 'none';
@@ -130,12 +174,12 @@
                 } else if (msg.type === 'chart_analysis') {
                     addAnalysisChart(msg.payload, false, msg.chartId);
                 } else if (msg.type === 'chart_das_prediction') {
-                addDasPredictionChart(msg.payload, false, msg.chartId);
+                    addDasPredictionChart(msg.payload, false, msg.chartId);
                 } else if (msg.type === 'chart_prediction') {
                     addPredictionChart(msg.payload, false, msg.chartId);
                 }
             });
-        updateDownloadButtonState();
+            updateDownloadButtonState();
         }
 
         function updateDownloadButtonState() {
@@ -192,7 +236,17 @@
             chartWrapper.className = 'message bot';
             const bubble = document.createElement('div');
             bubble.className = 'bubble chart-bubble';
-            bubble.innerHTML = `<div class="chart-header"><h3>${title}</h3></div><div class="chart-canvas-container"><canvas id="${chartId}"></canvas></div><button class="download-chart-btn" data-chart-id="${chartId}" title="Unduh Grafik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>`;
+            bubble.innerHTML = `<div class="chart-header"><h3>${title}</h3></div>
+                                <div class="chart-canvas-container" style="height: 500px;">
+                                    <canvas id="${chartId}"></canvas>
+                                </div>
+                                <button class="download-chart-btn" data-chart-id="${chartId}" title="Unduh Grafik">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                    </svg>
+                                </button>`;
             chartWrapper.appendChild(bubble);
             chatMessages.appendChild(chartWrapper);
             return document.getElementById(chartId);
@@ -230,7 +284,7 @@
                     {
                         label: 'Batas Musim Kemarau',
                         data: Array(24).fill(threshold),
-                        borderColor: 'rgba(255, 99, 132, 0.7)',
+                        borderColor: 'rgba(245, 35, 35, 1)',
                         borderWidth: 2,
                         borderDash: [5, 5],
                         pointRadius: 0,
@@ -240,7 +294,7 @@
                         label: 'Batas Atas Normal',
                         data: payload.data_upper_bound,
                         borderColor: 'rgba(40, 167, 69, 0.8)',
-                        borderWidth: 2,
+                        borderWidth: 1,
                         pointRadius: 0,
                         fill: false,
                         // tension: 0.1,
@@ -250,7 +304,7 @@
                         label: 'Batas Bawah Normal',
                         data: payload.data_lower_bound,
                         borderColor: 'rgba(139, 69, 19, 0.8)',
-                        borderWidth: 2,
+                        borderWidth: 1,
                         pointRadius: 0,
                         fill: false,
                         // tension: 0.1,
@@ -261,7 +315,35 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    // --- PERBAIKAN 1: Tambahkan/Sesuaikan padding dan posisi legenda ---
+                    layout: {
+                        padding: {
+                            top: 20, // Beri lebih banyak ruang di bagian atas untuk logo dan teks BMKG
+                            left: 10, // Sedikit padding dari kiri
+                            right: 10,
+                            bottom: 10
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top', // Pastikan legenda di atas
+                            align: 'center', // Agar legenda tetap di tengah
+                            labels: {
+                                padding: 20 // Jarak antar item legenda
+                            }
+                        }
+                        
+                    },
+                    // --- AKHIR PERBAIKAN 1 ---
                     scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Bulan'
+                            }
+                        },
                         y: {
                             beginAtZero: true,
                             title: {
@@ -360,6 +442,14 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            top: 70, // Beri lebih banyak ruang di bagian atas untuk logo dan teks BMKG
+                            left: 10, // Sedikit padding dari kiri
+                            right: 10,
+                            bottom: 10
+                        }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -373,8 +463,11 @@
                         // Tampilkan semua label di legenda
                         legend: {
                             display: true,
+                            position: 'top', // Pastikan legenda di atas
+                            align: 'center',
                             labels: {
                                 usePointStyle: true,
+                                padding: 20,
                                 font: {
                                     size: 14
                                 },
@@ -453,6 +546,14 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            top: 70, // Beri lebih banyak ruang di bagian atas untuk logo dan teks BMKG
+                            left: 10, // Sedikit padding dari kiri
+                            right: 10,
+                            bottom: 10
+                        }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -464,7 +565,13 @@
                     },
                     plugins: {
                         legend: {
-                            display: false
+                            display: true,
+                            position: 'top', // Pastikan legenda di atas
+                            align: 'center'
+                        },
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20 // Jarak antar item legenda
                         }
                     }
                 }
@@ -497,6 +604,14 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            top: 70, // Beri lebih banyak ruang di bagian atas untuk logo dan teks BMKG
+                            left: 10, // Sedikit padding dari kiri
+                            right: 10,
+                            bottom: 10
+                        }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -508,7 +623,13 @@
                     },
                     plugins: {
                         legend: {
-                            display: false
+                            display: true,
+                            position: 'top', // Pastikan legenda di atas
+                            align: 'center', // Agar legenda tetap di tengah
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20 // Jarak antar item legenda
+                            }
                         }
                     }
                 }
@@ -830,7 +951,7 @@
 
                 // --- Loop Melalui Setiap Pesan ---
                 for (const msg of currentSession.messages) {
-                    pdf.setFont(undefined, 'normal'); 
+                    pdf.setFont(undefined, 'normal');
 
                     switch (msg.type) {
 
