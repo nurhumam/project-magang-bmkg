@@ -14,7 +14,7 @@
 * {
     margin: 0;
     padding: 0;
-    box-sizing: border-box;
+    /* box-sizing: border-box; */
 }
 
 body,
@@ -154,30 +154,6 @@ html {
     color: rgb(44, 44, 44);
 }
 
-.sidebar-footer {
-    border-top: 1px solid var(--border-color);
-    padding-top: 12px;
-}
-
-.user-profile {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px;
-}
-
-.user-profile .avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background-color: #7B1FA2;
-    color: var(--text-dark);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-}
-
 /* --- Konten Utama --- */
 .main-content {
     flex: 1;
@@ -219,7 +195,7 @@ html {
 .welcome-text {
     font-size: 1.5rem;
     font-weight: 500;
-    color: #9ca3af;
+    color: #696c6e;
 }
 
 #chat-messages {
@@ -227,7 +203,7 @@ html {
     flex-direction: column;
     gap: 24px;
     padding: 24px;
-    max-width: 800px;
+    max-width: 1100px;
     margin: 0 auto;
     width: 100%;
 }
@@ -259,7 +235,7 @@ html {
 }
 
 .bubble.chart-bubble {
-    width: 100%;
+    width: 98%;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -268,16 +244,47 @@ html {
 
 .chart-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     margin-bottom: 12px;
     width: 96%;
+    /* padding-right: 40px; */
 }
 
 .chart-header h3 {
     font-size: 1.1rem;
     margin: 0;
+    flex-grow: 1;
+}
 
+.chart-controls {
+    display: flex;
+    gap: 6px;
+    margin-left: 16px;
+    flex-shrink: 0;
+}
+
+.chart-control-btn {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    color: #333;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.chart-control-btn:hover {
+    background-color: #e0e0e0;
+}
+
+.chart-control-btn.active {
+    background-color: var(--accent-blue);
+    color: white;
+    border-color: var(--accent-blue);
+    font-weight: 600;
 }
 
 .chart-canvas-container {
@@ -298,6 +305,7 @@ html {
     padding: 6px;
     opacity: 0;
     transition: opacity 0.2s ease;
+    z-index: 5;
 }
 
 .chart-bubble:hover .download-chart-btn {
@@ -479,21 +487,39 @@ html {
 .loader-bars span {
     width: 4px;
     height: 100%;
-    background-color: var(--accent-blue); /* Pakai warna aksen biru */
+    background-color: var(--accent-blue);
+    /* Pakai warna aksen biru */
     animation: bar-scale 1.2s infinite ease-in-out;
 }
 
-.loader-bars span:nth-child(1) { animation-delay: 0s; }
-.loader-bars span:nth-child(2) { animation-delay: -1.1s; }
-.loader-bars span:nth-child(3) { animation-delay: -1.0s; }
-.loader-bars span:nth-child(4) { animation-delay: -0.9s; }
+.loader-bars span:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.loader-bars span:nth-child(2) {
+    animation-delay: -1.1s;
+}
+
+.loader-bars span:nth-child(3) {
+    animation-delay: -1.0s;
+}
+
+.loader-bars span:nth-child(4) {
+    animation-delay: -0.9s;
+}
 
 @keyframes bar-scale {
-    0%, 40%, 100% {
-        transform: scaleY(0.2); /* Posisi pendek */
+
+    0%,
+    40%,
+    100% {
+        transform: scaleY(0.2);
+        /* Posisi pendek */
     }
+
     20% {
-        transform: scaleY(1.0); /* Posisi tinggi */
+        transform: scaleY(1.0);
+        /* Posisi tinggi */
     }
 }
 
@@ -663,4 +689,62 @@ html {
     #empty-state h1 {
         font-size: 1.8rem;
     }
+}
+
+/* --- CSS BARU UNTUK DROPDOWN GRAFIK --- */
+.chart-select {
+    /* -webkit-appearance: none; */
+    /* -moz-appearance: none; */
+    /* appearance: none; */
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 4px 28px 4px 10px;
+    font-size: 0.8rem;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    color: #333;
+    justify-content: right;
+    /* justify-items: right; */
+    /* background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); */
+    /* background-position: right 0.5rem center; */
+    /* background-repeat: no-repeat; */
+    /* background-size: 1em 1em; */
+    margin-left: auto; 
+}
+
+.chart-select:hover {
+    background-color: #e0e0e0;
+}
+/* --- AKHIR CSS BARU --- */
+
+/* --- CSS BARU UNTUK GRAFIK BERDAMPINGAN --- */
+.chart-row-container {
+    display: flex;
+    flex-direction: row;
+    gap: 16px;
+    flex-wrap: wrap; /* Akan menumpuk di layar kecil */
+    width: 100%;
+}
+
+/* * Target bubble di dalam container baru
+ * Kita buat agar lebarnya 50% dikurangi setengah gap
+*/
+.chart-row-container > .bubble.chart-bubble {
+    flex: 1; /* Tumbuh untuk mengisi ruang */
+    /* HAPUS 'min-width: 400px;' DAN GANTI DENGAN INI: */
+    min-width: 320px; /* Lebar minimum yang lebih kecil sebelum wrap */
+    width: calc(50% - 8px); 
+}
+
+/* Pastikan header chart tidak terlalu penuh */
+.chart-row-container .chart-header {
+    flex-wrap: wrap; /* Izinkan kontrol membungkus di bawah judul */
+    /* padding-right: 35px; Tetap beri ruang untuk tombol download */
+}
+
+/* Pastikan select/tombol tidak merusak layout */
+.chart-row-container .chart-controls {
+    margin-left: 0; /* Hapus margin kiri di mode side-by-side */
+    margin-top: 8px; /* Beri sedikit jarak jika membungkus */
 }
