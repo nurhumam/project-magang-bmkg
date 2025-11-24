@@ -39,30 +39,54 @@ class ChatController extends Controller
     private function getNormalData($lat, $lon, $kecamatanInput, $regencyInput = null)
     {
         $months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-        $avg_months_sql = implode(', ', array_map(fn($m) => "AVG(`$m`) as `$m`", $months));
+        $data = null;
+        $targetLocation = null;
+        $point_string = null;
 
-        // --- Pencarian berdasarkan koordinat ---
+        // 1. Pencarian berdasarkan koordinat (Koordinat User)
         if ($lat && $lon) {
             $point_string = "ST_GeomFromText('POINT($lon $lat)')";
-
             $data = ClimateNormal::select('*')
                 ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
                 ->first();
-        } else {
+        } 
+        // 2. Pencarian berdasarkan nama Kecamatan/Kabupaten
+        else {
             $kecamatanLower = strtolower($kecamatanInput);
 
-            $query = ClimateNormal::selectRaw(
-                "MAX(province) as province, MAX(regency) as regency, ? as kecamatan, AVG(latitude) as latitude, AVG(longitude) as longitude, $avg_months_sql",
-                [$kecamatanInput]
+            // A. Cari dulu RATA-RATA KOORDINAT dari Kecamatan/Kabupaten
+            $queryCoord = ClimateNormal::selectRaw(
+                "AVG(latitude) as avg_latitude, AVG(longitude) as avg_longitude, MAX(province) as province, MAX(regency) as regency"
             )
                 ->whereRaw('LOWER(kecamatan) = ?', [$kecamatanLower]);
 
             if ($regencyInput) {
-                $query->whereRaw('LOWER(regency) = ?', [strtolower($regencyInput)]);
+                $queryCoord->whereRaw('LOWER(regency) = ?', [strtolower($regencyInput)]);
             }
 
-            $data = $query->first();
+            $targetLocation = $queryCoord->first();
 
+            // Validasi apakah koordinat rata-rata ditemukan
+            if (!$targetLocation || is_null($targetLocation->avg_latitude)) {
+                return null;
+            }
+
+            // B. Gunakan koordinat rata-rata ini untuk mencari data grid terdekat
+            $targetLat = $targetLocation->avg_latitude;
+            $targetLon = $targetLocation->avg_longitude;
+            $point_string = "ST_GeomFromText('POINT($targetLon $targetLat)')";
+
+            // Cari data curah hujan normal (CH) dari titik grid terdekat
+            $data = ClimateNormal::select('*')
+                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+                ->first();
+
+            // Jika data grid ditemukan, kita timpa data provinsi/regency dengan nama yang sudah dikumpulkan dari langkah A
+            if ($data) {
+                $data->province = $targetLocation->province;
+                $data->regency = $targetLocation->regency;
+                $data->kecamatan = $kecamatanInput;
+            }
         }
 
         // Validasi akhir jika data tidak ditemukan sama sekali
@@ -72,6 +96,7 @@ class ChatController extends Controller
 
         $dataValues = [];
         foreach ($months as $month) {
+            // Pastikan kita mengakses kolom bulan dari hasil query $data
             $dataValues[] = (float) $data->$month;
         }
 

@@ -9,7 +9,7 @@ from datetime import datetime
 
 # --- KONFIGURASI PATH ---
 BASE_PATH = 'C:/Users/USER/Documents/Arsip-Magang/BMKG/web-chat/web-informasi-iklim/data'
-PATH_NORMAL = os.path.join(BASE_PATH, 'data-rata-rata', 'Grid_Desa_20251021_Table.xls')
+PATH_NORMAL = os.path.join(BASE_PATH, 'data-rata-rata', 'Grid_Kec2024_Tabel_gabungan_DATABASE_20251121.xlsx')
 PATH_ANALISIS = os.path.join(BASE_PATH, 'data-analisis')
 PATH_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi')
 PATH_DAS_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi-das')
