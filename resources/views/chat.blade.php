@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visualisasi Data Iklim</title>
+    <link rel="icon" href="{{ asset('images/logo-bmkg1.png') }}" sizes="512x512">
     <link rel="stylesheet" href="{{ asset('css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.3/jspdf.umd.min.js"></script>
@@ -15,6 +16,12 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
+                <button id="toggle-sidebar-btn" class="icon-btn mobile-only" title="Menu">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 12H21M3 6H21M3 18H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                </button>
                 <a href="#" id="new-chat-btn" class="new-chat-btn">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -35,6 +42,20 @@
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
                 </button>
+                <button id="delete-all-btn" class="icon-btn danger" title="Hapus Semua Riwayat">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 12V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M14 12V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M4 7H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M6 10V18C6 19.6569 7.34315 21 9 21H15C16.6569 21 18 19.6569 18 18V10"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M9 5C9 3.89543 9.89543 3 11 3H13C14.1046 3 15 3.89543 15 5V7H9V5Z"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </button>
             </div>
             <nav class="chat-history">
                 <p>Riwayat Obrolan</p>
@@ -50,7 +71,8 @@
                             style="width:220px; height:220px;">
                         <div>
                             <h1 style="color: black;">Visualisasi Data Iklim</h1>
-                            <p class="welcome-text">Apa yang bisa saya bantu?</p>
+                            <h1 style="color: black; font-size: 35px;">Level Kecamatan</h1>
+                            <p class="welcome-text">Silahkan tanya iklim mana saja</p>
                         </div>
                     </div>
                 </div>
@@ -60,8 +82,7 @@
                 <form id="chat-form" autocomplete="off">
                     <div class="input-wrapper">
                         <div id="autocomplete-results" class="autocomplete-results"></div>
-                        <input id="chat-input" type="text"
-                            placeholder="masukkan nama Kecamatan atau koordinat (lat, lon)" required />
+                        <input id="chat-input" type="text" placeholder="masukkan nama Kecamatan" required />
                         <button id="send-btn" type="submit" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg"
                                 width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -76,6 +97,9 @@
     </div>
 
     <script>
+        const sidebar = document.querySelector('.sidebar');
+        const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+        const mainContent = document.querySelector('.main-content');
         const chatMessages = document.getElementById('chat-messages');
         const chatForm = document.getElementById('chat-form');
         const chatInput = document.getElementById('chat-input');
@@ -84,6 +108,7 @@
         const newChatBtn = document.getElementById('new-chat-btn');
         const downloadChatBtn = document.getElementById('download-chat-btn');
         const downloadDataBtn = document.getElementById('download-data-btn');
+        const deleteAllBtn = document.getElementById('delete-all-btn');
         let chatHistory = [];
         let currentSession = null;
         let chartInstances = {};
@@ -434,7 +459,7 @@
                                 }
                             }
                         },
-                        tooltip: { titleColor: 'black', bodyColor: 'black' }
+                        tooltip: { titleColor: 'white', bodyColor: 'white' }
                     },
                     scales: {
                         x: {
@@ -908,7 +933,7 @@
                         responsive: true, maintainAspectRatio: false, layout: { padding: { top: 25, left: 10, right: 10, bottom: 10 } },
                         scales: {
                             x: {
-                                title: { display: true, text: 'Periode Dasharian (bulanan)', color: 'black' },
+                                title: { display: true, text: 'Periode Dasarian', color: 'black' },
                                 ticks: { color: 'black' }
                             },
                             y: {
@@ -942,7 +967,7 @@
                         layout: { padding: { top: 25, left: 10, right: 10, bottom: 10 } },
                         scales: {
                             x: {
-                                title: { display: true, text: 'Periode Dasharian (bulanan)', color: 'black' },
+                                title: { display: true, text: 'Periode Dasarian', color: 'black' },
                                 ticks: { color: 'black' }
                             },
                             y: {
@@ -1199,6 +1224,25 @@
 
         chatInput.addEventListener('keyup', debounce(fetchAutocomplete, 300));
 
+        if (toggleSidebarBtn) {
+            toggleSidebarBtn.addEventListener('click', () => {
+                sidebar.classList.toggle('open');
+                // Tambahkan overlay sederhana di main content untuk menutup saat diklik
+                if (sidebar.classList.contains('open')) {
+                    const overlay = document.createElement('div');
+                    overlay.id = 'sidebar-overlay';
+                    mainContent.appendChild(overlay);
+                    overlay.addEventListener('click', () => {
+                        sidebar.classList.remove('open');
+                        overlay.remove();
+                    });
+                } else {
+                    document.getElementById('sidebar-overlay')?.remove();
+                }
+            });
+        }
+
+
         document.addEventListener('click', (e) => {
             if (e.target !== chatInput && e.target.closest('#autocomplete-results') === null) {
                 autocompleteResults.style.display = 'none';
@@ -1360,6 +1404,7 @@
             renderHistorySidebar();
             resetChatView();
         });
+
         historyList.addEventListener('click', (e) => {
             e.preventDefault();
             const link = e.target.closest('a');
@@ -1373,6 +1418,11 @@
                 const sessionId = link.dataset.sessionId;
                 const sessionToLoad = chatHistory.find(s => s.id == sessionId);
                 if (sessionToLoad) renderSession(sessionToLoad);
+
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.remove('open');
+                    document.getElementById('sidebar-overlay')?.remove();
+                }
             }
             if (deleteBtn) {
                 const sessionId = deleteBtn.dataset.sessionId;
@@ -1583,6 +1633,25 @@
                     downloadDataBtn.innerHTML = originalBtnHTML;
                     updateDownloadButtonState();
                 });
+        });
+
+        deleteAllBtn.addEventListener('click', () => {
+            // Konfirmasi sebelum menghapus semua riwayat
+            if (confirm('Apakah Anda yakin ingin menghapus SEMUA riwayat obrolan? Aksi ini tidak dapat dibatalkan.')) {
+                // Hapus item dari localStorage
+                localStorage.removeItem('bmkgChatHistory');
+
+                // Reset variabel lokal
+                chatHistory = [];
+
+                // Reset tampilan obrolan utama
+                resetChatView();
+
+                // Render ulang sidebar
+                renderHistorySidebar();
+
+                alert('Semua riwayat obrolan telah dihapus.');
+            }
         });
 
         document.addEventListener('DOMContentLoaded', loadHistory);

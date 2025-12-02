@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\LocationGrid;
 use App\Models\ClimateNormal;
 use App\Models\ClimateAnalysis;
 use App\Models\ClimatePrediction;
@@ -39,49 +40,126 @@ class ChatController extends Controller
     private function getNormalData($lat, $lon, $kecamatanInput, $regencyInput = null)
     {
         $months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-        $avg_months_sql = implode(', ', array_map(fn($m) => "AVG(`$m`) as `$m`", $months));
+        $avg_months_sql = implode(', ', array_map(fn($m) => "AVG(T1.`$m`) as `$m`", $months));
 
-        // --- Pencarian berdasarkan koordinat ---
+        $locationInfo = null; // Menyimpan informasi nama/koordinat rata-rata wilayah
+        $targetPointString = null; // Menyimpan POINT string untuk pencarian spasial
+
+        // --- 1. Tentukan Titik Acuan dan Dapatkan Informasi Wilayah (LocationGrid) ---
         if ($lat && $lon) {
-            $point_string = "ST_GeomFromText('POINT($lon $lat)')";
-
-            $data = ClimateNormal::select('*')
-                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+            // Kasus 1: Input Koordinat (Cari LocationGrid terdekat untuk mendapatkan nama)
+            $locationInfo = LocationGrid::selectRaw('province, regency, kecamatan, latitude, longitude')
+                ->orderByRaw("ST_Distance_Sphere(location, ST_GeomFromText('POINT($lon $lat)'))")
                 ->first();
+
+            if (!$locationInfo)
+                return null;
+
+            $targetPointString = "ST_GeomFromText('POINT({$locationInfo->longitude} {$locationInfo->latitude})')";
+
         } else {
+            // Kasus 2: Input Nama Wilayah (Cari semua grid yang cocok dan hitung rata-rata koordinat)
             $kecamatanLower = strtolower($kecamatanInput);
 
-            $query = ClimateNormal::selectRaw(
-                "MAX(province) as province, MAX(regency) as regency, ? as kecamatan, AVG(latitude) as latitude, AVG(longitude) as longitude, $avg_months_sql",
-                [$kecamatanInput]
-            )
-                ->whereRaw('LOWER(kecamatan) = ?', [$kecamatanLower]);
+            // Query untuk mendapatkan rata-rata koordinat dan informasi nama dari semua grid yang cocok
+            $queryLocation = LocationGrid::selectRaw('province, regency, kecamatan, AVG(latitude) as latitude, AVG(longitude) as longitude')
+                ->whereRaw('TRIM(LOWER(kecamatan)) = ?', [$kecamatanLower]);
 
             if ($regencyInput) {
-                $query->whereRaw('LOWER(regency) = ?', [strtolower($regencyInput)]);
+                $queryLocation->whereRaw('TRIM(LOWER(regency)) = ?', [strtolower($regencyInput)]);
             }
 
-            $data = $query->first();
+            $locationInfo = $queryLocation
+                ->groupBy('kecamatan', 'regency', 'province')
+                ->first();
 
+            if (!$locationInfo)
+                return null;
+
+            // Tentukan target point dengan KORDINAT RATA-RATA DARI LOKASI YANG COCOK
+            $targetPointString = "ST_GeomFromText('POINT({$locationInfo->longitude} {$locationInfo->latitude})')";
         }
 
-        // Validasi akhir jika data tidak ditemukan sama sekali
-        if (!$data || is_null($data->latitude)) {
+
+        // --- 2. Dapatkan Semua Titik Lokasi GRID yang Persis Sama dengan Target (Dari LocationGrid) ---
+        // Ini adalah kunci baru: menemukan lokasi yang persis sama berdasarkan koordinat.
+
+        // Menggunakan ST_AsBinary untuk mendapatkan representasi biner dari kolom POINT 
+        // yang TIDAK SAMA dengan target point (kecuali jika pointnya tunggal).
+        // Mari kita gunakan pendekatan yang lebih bersih: dapatkan DAHULU semua lokasi yang cocok dari T2.
+
+        $kecamatanLower = strtolower($locationInfo->kecamatan);
+        $regencyLower = strtolower($locationInfo->regency);
+
+        // 2a. Kumpulkan SEMUA kolom location (POINT) yang cocok dengan nama wilayah dari T2
+        $matchingLocations = LocationGrid::select('location')
+            ->whereRaw('TRIM(LOWER(kecamatan)) = ?', [$kecamatanLower])
+            ->whereRaw('TRIM(LOWER(regency)) = ?', [$regencyLower])
+            ->distinct()
+            ->pluck('location')
+            ->toArray();
+
+        if (empty($matchingLocations)) {
             return null;
         }
 
+        // --- 3. Cari Data Normal (T1) yang Lokasinya (POINT) Persis Sama dengan Data T2 ---
+
+        $avg_data_query = ClimateNormal::from('climate_normals AS T1')
+            // Menggunakan fungsi Spasial ST_AsBinary untuk perbandingan yang andal
+            // Membandingkan kolom location BINER di T1 dengan semua lokasi BINER yang ditemukan di T2
+            ->whereIn('T1.location', $matchingLocations)
+            ->selectRaw($avg_months_sql);
+
+
+        // Dapatkan hasil rata-rata curah hujan bulanan
+        $avg_ch_data = $avg_data_query->first();
+
+
+        // --- 4. Konsolidasi dan Validasi Hasil ---
+
+        // Validasi akhir jika data CH normal tidak ditemukan sama sekali
+        if (!$avg_ch_data || is_null($avg_ch_data->jan)) {
+            // Jika pencocokan location tidak menemukan data CH, coba lakukan pencarian spasial terdekat
+            // ke titik rata-rata (fallback agar tidak 404)
+
+            $data = ClimateNormal::from('climate_normals AS T1')
+                ->selectRaw(
+                    "T1.latitude, T1.longitude, T1.no_grid, 
+                    T1.jan, T1.feb, T1.mar, T1.apr, T1.may, T1.jun, 
+                    T1.jul, T1.aug, T1.sep, T1.oct, T1.nov, T1.dec"
+                )
+                ->orderByRaw("ST_Distance_Sphere(T1.location, $targetPointString)")
+                ->first();
+
+            if (!$data || is_null($data->jan))
+                return null;
+
+            // Jika fallback berhasil, pakai data CH dari grid terdekat
+            $avg_ch_data = $data;
+        }
+
+        // --- 5. Format Output ---
+
         $dataValues = [];
         foreach ($months as $month) {
-            $dataValues[] = (float) $data->$month;
+            // Data CH diambil dari hasil rata-rata/fallback
+            if (isset($avg_ch_data->$month)) {
+                $dataValues[] = (float) $avg_ch_data->$month;
+            } else {
+                $dataValues[] = 0.0;
+            }
         }
 
         return [
-            'province' => $data->province,
-            'regency' => $data->regency,
-            'kecamatan' => $data->kecamatan,
-            'locationName' => ucwords(strtolower($data->kecamatan . ', ' . $data->regency . ', ' . $data->province)),
+            // Informasi lokasi diambil dari hasil pencarian awal/rata-rata
+            'province' => $locationInfo->province,
+            'regency' => $locationInfo->regency,
+            'kecamatan' => $locationInfo->kecamatan,
+            'locationName' => ucwords(strtolower($locationInfo->kecamatan . ', ' . $locationInfo->regency . ', ' . $locationInfo->province)),
             'data' => $dataValues,
-            'coords' => ['lat' => $data->latitude, 'lon' => $data->longitude]
+            'coords' => ['lat' => $locationInfo->latitude, 'lon' => $locationInfo->longitude],
+            'no_grid' => $locationInfo->no_grid ?? null // no_grid bisa null
         ];
     }
 
@@ -109,7 +187,7 @@ class ChatController extends Controller
                 ->first();
 
             if ($nearest) {
-                $labels[] = $period;
+                $labels[] = $this->formatDasLabel($period);
                 $data[] = round($nearest->ch, 2);
 
                 $month_number = (int) date('n', strtotime($period));
@@ -117,7 +195,7 @@ class ChatController extends Controller
                 $lower_bounds[] = $normal_bounds_lookup[$month_number]['lower'];
             }
         }
-        
+
         return count($labels) >= 2 ? [
             'labels' => $labels,
             'data' => $data,
@@ -151,7 +229,7 @@ class ChatController extends Controller
 
             if ($nearest) {
                 $labels[] = $period;
-                $data[] = round($nearest->val, 2);
+                $data[] = round($nearest->val, 0);
 
                 try {
                     $parts = explode('-', $period);
@@ -181,24 +259,15 @@ class ChatController extends Controller
             ->first();
 
         if (!$latest_version)
-            return null; 
+            return null;
 
         $today = now();
         $day = $today->day;
         $month = $today->month;
         $year = $today->year;
 
-        if ($day <= 10) {
-            $current_das_string = "$year-$month-1";
-        } elseif ($day <= 20) {
-            $current_das_string = "$year-$month-2";
-        } else {
-            $current_das_string = "$year-$month-3";
-        }
-
         $periods = ClimateDasPrediction::select('prediction_das_period')
             ->where('prediction_version', $latest_version->prediction_version)
-            ->where('prediction_das_period', '>', $current_das_string)
             ->distinct()
             ->orderBy('prediction_das_period', 'asc')
             ->limit(3)
@@ -222,7 +291,7 @@ class ChatController extends Controller
 
             if ($nearest) {
                 $labels[] = $this->formatDasLabel($period);
-                $data[] = round($nearest->val, 2);
+                $data[] = round($nearest->val, 0);
 
                 try {
                     $parts = explode('-', $period);
@@ -254,23 +323,9 @@ class ChatController extends Controller
         if (!$latest_version)
             return null;
 
-        $today = now();
-        $day = $today->day;
-        $month = $today->month;
-        $year = $today->year;
-
-        if ($day <= 10) {
-            $current_das_string = "$year-$month-1";
-        } elseif ($day <= 20) {
-            $current_das_string = "$year-$month-2";
-        } else {
-            $current_das_string = "$year-$month-3";
-        }
-
         // Ambil periode dasarian yang tersedia setelah periode saat ini
         $periods = ClimateDasProbability::select('prediction_das_period')
             ->where('prediction_version', $latest_version->prediction_version)
-            ->where('prediction_das_period', '>', $current_das_string)
             ->distinct()
             ->orderBy('prediction_das_period', 'asc')
             ->limit(3)
@@ -308,7 +363,7 @@ class ChatController extends Controller
                 $labels[] = $this->formatDasLabel($period);
 
                 foreach ($prob_columns as $col) {
-                    $data_arrays[$col][] = round($nearest->$col, 2);
+                    $data_arrays[$col][] = round($nearest->$col, 0);
                 }
             }
         }
@@ -353,6 +408,48 @@ class ChatController extends Controller
         $lastItem = array_pop($items);
         return implode(', ', $items) . ', dan ' . $lastItem;
     }
+
+    private function formatMonthYear($period_string)
+    {
+        try {
+            // 1. Bersihkan string dari spasi/karakter tak terlihat & jadikan string.
+            $period_string = trim((string) $period_string);
+
+            $year = null;
+            $month_number = null;
+
+            // 2. Jika formatnya YYYY-MM (misal: 2025-11), proses langsung
+            if (preg_match('/^\d{4}-\d{1,2}$/', $period_string)) {
+                $parts = explode('-', $period_string);
+                $year = $parts[0];
+                $month_number = (int) $parts[1];
+
+                // 3. Jika formatnya Mmm-YY (misal: Sep-25 atau Nov-25), konversi menggunakan strtotime
+            } elseif (preg_match('/^[A-Za-z]{3}-\d{2}$/', $period_string)) {
+                // Tambahkan '01-' di depan agar strtotime mengenali format tanggal/bulan/tahun
+                $timestamp = strtotime("01-" . $period_string);
+                if ($timestamp === false)
+                    throw new \Exception("Invalid date format: " . $period_string);
+                $year = date('Y', $timestamp);
+                $month_number = (int) date('m', $timestamp);
+
+            } else {
+                // Fallback untuk mencoba parse tanggal apa pun yang mungkin tersisa
+                $date_parts = date_parse($period_string);
+                if ($date_parts['error_count'] > 0 || $date_parts['month'] == 0 || $date_parts['year'] == 0) {
+                    return $period_string; // Kembalikan string asli jika gagal total
+                }
+                $year = $date_parts['year'];
+                $month_number = $date_parts['month'];
+            }
+
+            $monthNameId = $this->monthNamesId[$month_number] ?? '';
+            return "{$monthNameId} {$year}";
+
+        } catch (\Exception $e) {
+            return $period_string; // Kembalikan string mentah jika ada error
+        }
+    }
     // === FUNGSI BANTUAN LAINNYA END ===
 
 
@@ -375,7 +472,7 @@ class ChatController extends Controller
 
         $monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
         $data = $normalData['data'];
-        
+
         $maxRain = max($data);
         $minRain = min($data);
         $peakMonthIndex = array_search($maxRain, $data);
@@ -725,7 +822,8 @@ class ChatController extends Controller
             return response()->json([]);
         }
 
-        $data = ClimateNormal::select('kecamatan', 'regency')
+        // Menggunakan LocationGrid untuk pencarian, tidak lagi ClimateNormal
+        $data = LocationGrid::select('kecamatan', 'regency')
             ->where('kecamatan', 'LIKE', $term . '%')
             ->distinct()
             ->limit(10)
@@ -736,6 +834,7 @@ class ChatController extends Controller
             $regency = ucwords(strtolower($item->regency));
 
             return [
+                // Penting: Mengembalikan format yang sama seperti sebelumnya
                 'value' => $kecamatan,
                 'display' => $kecamatan . ', ' . $regency
             ];
@@ -749,7 +848,7 @@ class ChatController extends Controller
         if (is_numeric($value)) {
             // Kita ingin membatasi hingga 2 desimal (sesuai data Anda) dan
             // menggunakan koma (,) sebagai desimal dan titik (.) sebagai ribuan.
-            return number_format((float)$value, 2, ',', '.');
+            return number_format((float) $value, 2, ',', '.');
         }
         return $value;
     }
@@ -813,7 +912,9 @@ class ChatController extends Controller
 
         // Header Metadata
         // $dataRows[] = ['Tipe Data', 'Periode', 'Nilai (mm/das/bulan)', 'Keterangan'];
-        $dataRows[] = ["Provinsi: {$province}", "Kabupaten/Kota: {$regency}", "Kecamatan: {$kecamatan}", "Latitude: {$this->formatToLocalString($targetLat)}", "Longitude: {$this->formatToLocalString($targetLon)}"];
+        $dataRows[] = ["Provinsi: {$province}"];
+        $dataRows[] = ["Kabupaten/Kota: {$regency}"];
+        $dataRows[] = ["Kecamatan: {$kecamatan}"];
         // $dataRows[] = ["Lokasi: {$locationName} (Lat: {$targetLat}, Lon: {$targetLon})"];
         $dataRows[] = [];
 
@@ -821,7 +922,7 @@ class ChatController extends Controller
         $dataRows[] = ['DATA NORMAL'];
         $dataRows[] = ['Bulan', 'Rata-Rata CH (mm)', 'Batas Atas (mm)', 'Batas Bawah (mm)'];
         $monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        
+
         foreach ($normalData['data'] as $index => $value) {
             $month = $monthNames[$index];
             $upper = $normal_bounds_lookup[$index + 1]['upper'];
@@ -834,14 +935,23 @@ class ChatController extends Controller
         if ($analysisData) {
             $dataRows[] = ['DATA ANALISIS'];
             $dataRows[] = ['Periode', 'CH Aktual (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
+
             foreach ($analysisData['labels'] as $index => $period) {
-                $value = $analysisData['data'][$index];
-                $upper = $analysisData['upper_bounds'][$index];
-                $lower = $analysisData['lower_bounds'][$index];
+                $formattedPeriod = $this->formatMonthYear($period);
+
+                // --- START PERUBAHAN 1: Mengatasi Nilai NULL yang Menggeser Kolom ---
+                $value = $analysisData['data'][$index] ?? 0; // Jika null, anggap 0
+                $upper = $analysisData['upper_bounds'][$index] ?? 0;
+                $lower = $analysisData['lower_bounds'][$index] ?? 0;
+                // --- END PERUBAHAN 1 ---
+
                 $status = 'Normal';
-                if ($value > $upper) $status = 'Atas Normal (Lebih Basah)';
-                elseif ($value < $lower) $status = 'Bawah Normal (Lebih Kering)';
-                $dataRows[] = [$period, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
+                if ($value > $upper)
+                    $status = 'Atas Normal (Lebih Basah)';
+                elseif ($value < $lower)
+                    $status = 'Bawah Normal (Lebih Kering)';
+
+                $dataRows[] = [$formattedPeriod, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
             }
             $dataRows[] = [];
         }
@@ -851,13 +961,21 @@ class ChatController extends Controller
             $dataRows[] = ['DATA PREDIKSI BULANAN'];
             $dataRows[] = ['Periode', 'CH Prediksi (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
             foreach ($predictionData['labels'] as $index => $period) {
-                $value = $predictionData['data'][$index];
-                $upper = $predictionData['upper_bounds'][$index];
-                $lower = $predictionData['lower_bounds'][$index];
+                $formattedPeriod = $this->formatMonthYear($period);
+
+                // --- START PERUBAHAN 2: Mengatasi Nilai NULL yang Menggeser Kolom ---
+                $value = $predictionData['data'][$index] ?? 0; // Jika null, anggap 0
+                $upper = $predictionData['upper_bounds'][$index] ?? 0;
+                $lower = $predictionData['lower_bounds'][$index] ?? 0;
+                // --- END PERUBAHAN 2 ---
+
                 $status = 'Normal';
-                if ($value > $upper) $status = 'Atas Normal (Lebih Basah)';
-                elseif ($value < $lower) $status = 'Bawah Normal (Lebih Kering)';
-                $dataRows[] = [$period, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
+                if ($value > $upper)
+                    $status = 'Atas Normal (Lebih Basah)';
+                elseif ($value < $lower)
+                    $status = 'Bawah Normal (Lebih Kering)';
+
+                $dataRows[] = [$formattedPeriod, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
             }
             $dataRows[] = [];
         }
@@ -871,8 +989,10 @@ class ChatController extends Controller
                 $upper = $dasPredictionData['upper_bounds'][$index];
                 $lower = $dasPredictionData['lower_bounds'][$index];
                 $status = 'Normal';
-                if ($value > $upper) $status = 'Atas Normal (Lebih Basah)';
-                elseif ($value < $lower) $status = 'Bawah Normal (Lebih Kering)';
+                if ($value > $upper)
+                    $status = 'Atas Normal (Lebih Basah)';
+                elseif ($value < $lower)
+                    $status = 'Bawah Normal (Lebih Kering)';
                 $dataRows[] = [$periodLabel, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
             }
             $dataRows[] = [];
@@ -892,6 +1012,9 @@ class ChatController extends Controller
                 }
                 $dataRows[] = $row;
             }
+
+            $dataRows[] = ['Data ini berasal dari arsip operasional/official BMKG.'];
+            $dataRows[] = ['DISCLAIMER: SEMUA KEPUTUSAN YANG DIBUAT BERDASARKAN DATA INI MENJADI TANGGUNG JAWAB PENGGUNA.'];
         }
 
         // 6. Konversi ke CSV (dengan batas titik koma ';')

@@ -9,7 +9,8 @@ from datetime import datetime
 
 # --- KONFIGURASI PATH ---
 BASE_PATH = 'C:/Users/USER/Documents/Arsip-Magang/BMKG/web-chat/web-informasi-iklim/data'
-PATH_NORMAL = os.path.join(BASE_PATH, 'data-rata-rata', 'Grid_Desa_20251021_Table.xls')
+PATH_NORMAL_DATA = os.path.join(BASE_PATH, 'data-rata-rata', 'Data-normal.xls') # NAMA FILE BARU
+PATH_LOCATION_GRID = os.path.join(BASE_PATH, 'data-nama-daerah', 'Grid_Kec2024_DATABASE_20251124.xlsx') # FILE BARU
 PATH_ANALISIS = os.path.join(BASE_PATH, 'data-analisis')
 PATH_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi')
 PATH_DAS_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi-das')
@@ -26,6 +27,7 @@ engine = create_engine(f'mysql+pymysql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}/{
 
 # --- Fungsi Generik untuk Impor, Tambah Kolom, Update, dan Index ---
 # --- VERSI PERBAIKAN ---
+
 def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True, periods_to_delete=None):
     """
     Fungsi untuk insert data, tambah/isi kolom spasial, dan index.
@@ -174,48 +176,106 @@ def find_latest_das_version_date(path_das_data, file_prefix):
 
     return None
 
+def import_locations():
+    print("\n--- Memulai Impor Data Lokasi/Grid (location_grids) ---")
+    try:
+        # Asumsi: File .xlsx dibaca, dan sheet/index 0 yang digunakan
+        df = pd.read_excel(PATH_LOCATION_GRID) 
+        
+        # Penamaan ulang kolom yang sesuai dengan skema DB baru
+        df.rename(columns={
+            'NO_GRID': 'no_grid', 'LAT2': 'latitude', 'LON2': 'longitude',
+            'nmprov': 'province', 'nmkab': 'regency', 
+            'nmkec': 'kecamatan', 'nmdesa': 'desa',
+        }, inplace=True)
+
+        cols_to_numeric = ['no_grid', 'latitude', 'longitude']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        original_count = len(df)
+        # Hapus baris tanpa kunci utama (no_grid) atau koordinat
+        df.dropna(subset=['no_grid', 'latitude', 'longitude'], inplace=True)
+        dropped_count = original_count - len(df)
+        if dropped_count > 0:
+            print(f" INFO: Dihapus {dropped_count} baris karena data kunci/koordinat kosong.")
+        
+        df[['latitude', 'longitude']] = df[['latitude', 'longitude']].round(4)
+        
+        db_columns = ['no_grid', 'longitude', 'latitude', 'province', 'regency', 'kecamatan', 'desa']
+        kolom_insert = [col for col in df.columns if col in db_columns]
+        df_insert = df[kolom_insert].copy()
+
+        df_insert = df_insert.astype(object).where(pd.notnull(df_insert), None)
+        
+        # Panggil fungsi impor generik (TRUNCATE karena ini data dimensi statis)
+        import_table_and_create_spatial('location_grids', df_insert, is_full_replace=True)
+
+    except Exception as e:
+        print(f"GAGAL Impor Data Lokasi: {e}")
+
 
 def import_normals():
-    print("\n--- Memulai Impor Data Normal ---")
+    print("\n--- Memulai Impor Data Normal Curah Hujan ---")
     try:
-        df = pd.read_excel(PATH_NORMAL)
+        # Asumsi: File .xls dibaca dengan engine 'xlrd' 
+        df = pd.read_excel(PATH_NORMAL_DATA, engine='xlrd')
+        
+        # Penamaan ulang kolom yang sesuai dengan skema DB
         df.rename(columns={
-            'URUT': 'urut', 'NO_GRID': 'no_grid', 'LAT': 'latitude', 'LON': 'longitude',
-            'ZOM9120__1': 'zom_1','ZOM9120_NA': 'zom_na', 'TIPE_ZOM': 'tipe_zom', 'CHTHN': 'chthn',
-            'ID_PROV38': 'province', 'ID_KABKOTA_IKN': 'regency', 'Kecamatan': 'kecamatan', 'Kelurahan/Desa': 'desa',
+            # Jika kolom 'urutan' ada di file sumber, pertahankan, jika tidak, biarkan MySQL mengisi AUTO_INCREMENT
+            # 'URUTAN': 'urutan', 
+            'NO_GRID': 'no_grid', 'LON': 'longitude', 'LAT': 'latitude',
             'JAN': 'jan', 'FEB': 'feb', 'MAR': 'mar', 'APR': 'apr', 'MAY': 'may', 'JUN': 'jun',
             'JUL': 'jul', 'AUG': 'aug', 'SEP': 'sep', 'OCT': 'oct', 'NOV': 'nov', 'DEC': 'dec'
         }, inplace=True)
 
         cols_to_round = [
-            'latitude', 'longitude', 'chthn', 'jan', 'feb', 'mar', 'apr', 'may',
-            'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+            'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 
+            'longitude', 'latitude'
         ]
-        all_numeric_cols = cols_to_round + ['zom_na', 'urut', 'no_grid']
+        
+        all_numeric_cols = cols_to_round + ['no_grid']
+        if 'urutan' in df.columns:
+             all_numeric_cols.append('urutan')
 
         for col in all_numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         original_count = len(df)
-        df.dropna(subset=['latitude', 'longitude'], inplace=True)
+        # Hapus baris tanpa kunci utama (no_grid) atau koordinat
+        df.dropna(subset=['no_grid', 'latitude', 'longitude'], inplace=True)
         dropped_count = original_count - len(df)
         if dropped_count > 0:
-            print(f"  INFO: Dihapus {dropped_count} baris karena lat/lon kosong/tidak valid.")
+            print(f" INFO: Dihapus {dropped_count} baris karena no_grid/koordinat kosong.")
 
-        df[cols_to_round] = df[cols_to_round].round(2)
-
-        db_columns = ['urut', 'no_grid', 'longitude', 'latitude', 'zom_1', 'zom_na', 'tipe_zom', 'chthn', 'province', 'regency', 'kecamatan', 'desa', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        # Rounding data, 5 untuk koordinat, 2 untuk CH
+        df[cols_to_round] = df[cols_to_round].round(5) 
+        
+        # Tentukan kolom yang akan di-insert
+        db_columns = [
+            'urutan', 'no_grid', 'longitude', 'latitude', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 
+            'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+        ]
         kolom_insert = [col for col in df.columns if col in db_columns]
         df_insert = df[kolom_insert].copy()
 
-        if 'latitude' in df_insert.columns:
-            df_insert['latitude'] = df_insert['latitude'].astype(float)
-        if 'longitude' in df_insert.columns:
-            df_insert['longitude'] = df_insert['longitude'].astype(float)
-
         df_insert = df_insert.astype(object).where(pd.notnull(df_insert), None)
+        
+        # *** GANTI BLOK INI DENGAN PEMANGGILAN import_table_and_create_spatial ***
+        
+        # Gunakan import_table_and_create_spatial. 
+        # Kita perlu menghapus kolom 'location' secara manual karena import_table_and_create_spatial
+        # hanya menghapus 'location' jika is_full_replace=True.
+        with engine.connect() as connection:
+            connection.execute(text(f"TRUNCATE TABLE `climate_normals`"))
+            connection.execute(text(f"ALTER TABLE `climate_normals` DROP COLUMN IF EXISTS `location`"))
+        
         import_table_and_create_spatial('climate_normals', df_insert, is_full_replace=True)
+        # Catatan: Fungsi import_table_and_create_spatial akan secara otomatis 
+        # membuat, mengisi, dan mengindex kolom 'location'
 
     except Exception as e:
         print(f"GAGAL Impor Data Normal: {e}")
@@ -290,7 +350,7 @@ def import_analyses():
             df.dropna(subset=['latitude', 'longitude'], inplace=True)
             dropped_count = original_count - len(df)
             if dropped_count > 0:
-                print(f"  INFO ({file_name}): Dihapus {dropped_count} baris lat/lon tidak valid.")
+                print(f" INFO ({file_name}): Dihapus {dropped_count} baris lat/lon tidak valid.")
 
             df[cols_to_numeric] = df[cols_to_numeric].round(2)
 
@@ -404,7 +464,7 @@ def import_predictions():
             df.dropna(subset=['latitude', 'longitude'], inplace=True)
             dropped_count = original_count - len(df)
             if dropped_count > 0:
-                print(f"  INFO ({file_name}): Dihapus {dropped_count} baris lat/lon tidak valid.")
+                print(f" INFO ({file_name}): Dihapus {dropped_count} baris lat/lon tidak valid.")
 
             df[cols_to_round] = df[cols_to_round].round(2)
 
@@ -606,6 +666,7 @@ if __name__ == '__main__':
         import_das_probabilities()
         print("\nSinkronisasi Dasarian selesai.")
     else:
+        import_locations()
         import_normals()
         import_analyses()
         import_predictions()
