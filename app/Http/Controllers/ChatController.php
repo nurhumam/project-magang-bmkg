@@ -35,136 +35,76 @@ class ChatController extends Controller
         12 => 'Desember'
     ];
 
-    // === FUNGSI UNTUK PEMANGGILAN DATA START ===
-    // --- FUNGSI UNTUK MENDAPATKAN DATA NORMAL ---
-    private function getNormalData($lat, $lon, $kecamatanInput, $regencyInput = null)
+    /**
+     * TAHAP 1: Menentukan daftar lokasi (Geometry) berdasarkan input teks user
+     */
+    private function getTargetLocations($input1, $input2 = null)
+    {
+        // Cek apakah input1 dan input2 adalah koordinat (Lat, Lon)
+        if (is_numeric($input1) && is_numeric($input2)) {
+            $lat = (float) $input1;
+            $lon = (float) $input2;
+
+            // Mencari titik terdekat di LocationGrid menggunakan ST_Distance
+            $results = LocationGrid::select('location', 'province', 'regency', 'kecamatan', 'latitude', 'longitude')
+                ->selectRaw("ST_Distance_Sphere(location, ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'))) as distance", [$lon, $lat])
+                ->orderBy('distance', 'asc')
+                ->limit(10)
+                ->get();
+        } else {
+            // Logika lama (Pencarian Nama Kecamatan)
+            $query = LocationGrid::select('location', 'province', 'regency', 'kecamatan', 'latitude', 'longitude')
+                ->whereRaw('TRIM(LOWER(kecamatan)) = ?', [strtolower($input1)]);
+
+            if ($input2) {
+                $query->whereRaw('TRIM(LOWER(regency)) = ?', [strtolower($input2)]);
+            }
+            $results = $query->get();
+        }
+
+        if ($results->isEmpty())
+            return null;
+
+        return [
+            'locations' => $results->pluck('location')->toArray(),
+            'info' => $results->first(),
+            'avg_coord' => [
+                'lat' => $results->avg('latitude'),
+                'lon' => $results->avg('longitude')
+            ]
+        ];
+    }
+
+    // === FUNGSI PEMANGGILAN DATA BERBASIS LOKASI GEOMETRY ===
+
+    private function getNormalDataByLocation($locations, $locationInfo)
     {
         $months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-        $avg_months_sql = implode(', ', array_map(fn($m) => "AVG(T1.`$m`) as `$m`", $months));
+        $avg_sql = implode(', ', array_map(fn($m) => "AVG(`$m`) as `$m`", $months));
 
-        $locationInfo = null; // Menyimpan informasi nama/koordinat rata-rata wilayah
-        $targetPointString = null; // Menyimpan POINT string untuk pencarian spasial
+        $data = ClimateNormal::whereIn('location', $locations)
+            ->selectRaw($avg_sql)
+            ->first();
 
-        // --- 1. Tentukan Titik Acuan dan Dapatkan Informasi Wilayah (LocationGrid) ---
-        if ($lat && $lon) {
-            // Kasus 1: Input Koordinat (Cari LocationGrid terdekat untuk mendapatkan nama)
-            $locationInfo = LocationGrid::selectRaw('province, regency, kecamatan, latitude, longitude')
-                ->orderByRaw("ST_Distance_Sphere(location, ST_GeomFromText('POINT($lon $lat)'))")
-                ->first();
-
-            if (!$locationInfo)
-                return null;
-
-            $targetPointString = "ST_GeomFromText('POINT({$locationInfo->longitude} {$locationInfo->latitude})')";
-
-        } else {
-            // Kasus 2: Input Nama Wilayah (Cari semua grid yang cocok dan hitung rata-rata koordinat)
-            $kecamatanLower = strtolower($kecamatanInput);
-
-            // Query untuk mendapatkan rata-rata koordinat dan informasi nama dari semua grid yang cocok
-            $queryLocation = LocationGrid::selectRaw('province, regency, kecamatan, AVG(latitude) as latitude, AVG(longitude) as longitude')
-                ->whereRaw('TRIM(LOWER(kecamatan)) = ?', [$kecamatanLower]);
-
-            if ($regencyInput) {
-                $queryLocation->whereRaw('TRIM(LOWER(regency)) = ?', [strtolower($regencyInput)]);
-            }
-
-            $locationInfo = $queryLocation
-                ->groupBy('kecamatan', 'regency', 'province')
-                ->first();
-
-            if (!$locationInfo)
-                return null;
-
-            // Tentukan target point dengan KORDINAT RATA-RATA DARI LOKASI YANG COCOK
-            $targetPointString = "ST_GeomFromText('POINT({$locationInfo->longitude} {$locationInfo->latitude})')";
-        }
-
-
-        // --- 2. Dapatkan Semua Titik Lokasi GRID yang Persis Sama dengan Target (Dari LocationGrid) ---
-        // Ini adalah kunci baru: menemukan lokasi yang persis sama berdasarkan koordinat.
-
-        // Menggunakan ST_AsBinary untuk mendapatkan representasi biner dari kolom POINT 
-        // yang TIDAK SAMA dengan target point (kecuali jika pointnya tunggal).
-        // Mari kita gunakan pendekatan yang lebih bersih: dapatkan DAHULU semua lokasi yang cocok dari T2.
-
-        $kecamatanLower = strtolower($locationInfo->kecamatan);
-        $regencyLower = strtolower($locationInfo->regency);
-
-        // 2a. Kumpulkan SEMUA kolom location (POINT) yang cocok dengan nama wilayah dari T2
-        $matchingLocations = LocationGrid::select('location')
-            ->whereRaw('TRIM(LOWER(kecamatan)) = ?', [$kecamatanLower])
-            ->whereRaw('TRIM(LOWER(regency)) = ?', [$regencyLower])
-            ->distinct()
-            ->pluck('location')
-            ->toArray();
-
-        if (empty($matchingLocations)) {
+        if (!$data || is_null($data->jan))
             return null;
-        }
-
-        // --- 3. Cari Data Normal (T1) yang Lokasinya (POINT) Persis Sama dengan Data T2 ---
-
-        $avg_data_query = ClimateNormal::from('climate_normals AS T1')
-            // Menggunakan fungsi Spasial ST_AsBinary untuk perbandingan yang andal
-            // Membandingkan kolom location BINER di T1 dengan semua lokasi BINER yang ditemukan di T2
-            ->whereIn('T1.location', $matchingLocations)
-            ->selectRaw($avg_months_sql);
-
-
-        // Dapatkan hasil rata-rata curah hujan bulanan
-        $avg_ch_data = $avg_data_query->first();
-
-
-        // --- 4. Konsolidasi dan Validasi Hasil ---
-
-        // Validasi akhir jika data CH normal tidak ditemukan sama sekali
-        if (!$avg_ch_data || is_null($avg_ch_data->jan)) {
-            // Jika pencocokan location tidak menemukan data CH, coba lakukan pencarian spasial terdekat
-            // ke titik rata-rata (fallback agar tidak 404)
-
-            $data = ClimateNormal::from('climate_normals AS T1')
-                ->selectRaw(
-                    "T1.latitude, T1.longitude, T1.no_grid, 
-                    T1.jan, T1.feb, T1.mar, T1.apr, T1.may, T1.jun, 
-                    T1.jul, T1.aug, T1.sep, T1.oct, T1.nov, T1.dec"
-                )
-                ->orderByRaw("ST_Distance_Sphere(T1.location, $targetPointString)")
-                ->first();
-
-            if (!$data || is_null($data->jan))
-                return null;
-
-            // Jika fallback berhasil, pakai data CH dari grid terdekat
-            $avg_ch_data = $data;
-        }
-
-        // --- 5. Format Output ---
 
         $dataValues = [];
         foreach ($months as $month) {
-            // Data CH diambil dari hasil rata-rata/fallback
-            if (isset($avg_ch_data->$month)) {
-                $dataValues[] = (float) $avg_ch_data->$month;
-            } else {
-                $dataValues[] = 0.0;
-            }
+            $dataValues[] = (float) $data->$month;
         }
 
         return [
-            // Informasi lokasi diambil dari hasil pencarian awal/rata-rata
             'province' => $locationInfo->province,
             'regency' => $locationInfo->regency,
             'kecamatan' => $locationInfo->kecamatan,
             'locationName' => ucwords(strtolower($locationInfo->kecamatan . ', ' . $locationInfo->regency . ', ' . $locationInfo->province)),
             'data' => $dataValues,
-            'coords' => ['lat' => $locationInfo->latitude, 'lon' => $locationInfo->longitude],
-            'no_grid' => $locationInfo->no_grid ?? null // no_grid bisa null
+            'coords' => ['lat' => $locationInfo->latitude, 'lon' => $locationInfo->longitude]
         ];
     }
 
-    // --- FUNGSI UNTUK MENDAPATKAN DATA ANALISIS ---
-    private function getAnalysisData($lat, $lon, $normal_bounds_lookup)
+    private function getAnalysisDataByLocation($locations, $normal_bounds_lookup)
     {
         $periods = ClimateAnalysis::select('data_period')->distinct()
             ->orderBy('data_period', 'desc')->limit(3)->get()->pluck('data_period')->reverse()->values();
@@ -177,35 +117,27 @@ class ChatController extends Controller
         $upper_bounds = [];
         $lower_bounds = [];
 
-        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
-
         foreach ($periods as $period) {
+            $avg_ch = ClimateAnalysis::where('data_period', $period)
+                ->whereIn('location', $locations)
+                ->avg('ch');
 
-            $nearest = ClimateAnalysis::select('ch')
-                ->where('data_period', $period)
-                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
-                ->first();
-
-            if ($nearest) {
+            if (!is_null($avg_ch)) {
                 $labels[] = $this->formatDasLabel($period);
-                $data[] = round($nearest->ch, 2);
-
-                $month_number = (int) date('n', strtotime($period));
-                $upper_bounds[] = $normal_bounds_lookup[$month_number]['upper'];
-                $lower_bounds[] = $normal_bounds_lookup[$month_number]['lower'];
+                $data[] = round($avg_ch, 0);
+                $month_num = (int) date('n', strtotime($period));
+                $upper_bounds[] = $normal_bounds_lookup[$month_num]['upper'];
+                $lower_bounds[] = $normal_bounds_lookup[$month_num]['lower'];
             }
         }
-
-        return count($labels) >= 2 ? [
-            'labels' => $labels,
-            'data' => $data,
-            'upper_bounds' => $upper_bounds,
-            'lower_bounds' => $lower_bounds
-        ] : null;
+        return !empty($labels) ? [
+            'labels' => $labels, 
+            'data' => $data, 
+            'upper_bounds' => $upper_bounds, 
+            'lower_bounds' => $lower_bounds] : null;
     }
 
-    // --- FUNGSI UNTUK MENDAPATKAN DATA PREDIKSI ---
-    private function getPredictionData($lat, $lon, $normal_bounds_lookup)
+    private function getPredictionDataByLocation($locations, $normal_bounds_lookup)
     {
         $periods = ClimatePrediction::select('prediction_period')->distinct()
             ->orderBy('prediction_period', 'asc')->limit(6)->get()->pluck('prediction_period');
@@ -218,242 +150,379 @@ class ChatController extends Controller
         $upper_bounds = [];
         $lower_bounds = [];
 
-        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
-
         foreach ($periods as $period) {
+            $avg_val = ClimatePrediction::where('prediction_period', $period)
+                ->whereIn('location', $locations)
+                ->avg('val');
 
-            $nearest = ClimatePrediction::select('val')
-                ->where('prediction_period', $period)
-                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
-                ->first();
-
-            if ($nearest) {
+            if (!is_null($avg_val)) {
                 $labels[] = $period;
-                $data[] = round($nearest->val, 0);
-
-                try {
-                    $parts = explode('-', $period);
-                    $month_number = (int) $parts[1];
-                    $upper_bounds[] = $normal_bounds_lookup[$month_number]['upper'];
-                    $lower_bounds[] = $normal_bounds_lookup[$month_number]['lower'];
-                } catch (\Exception $e) {
-                    $upper_bounds[] = null;
-                    $lower_bounds[] = null;
-                }
+                $data[] = round($avg_val, 0);
+                $month_num = (int) explode('-', $period)[1];
+                $upper_bounds[] = $normal_bounds_lookup[$month_num]['upper'];
+                $lower_bounds[] = $normal_bounds_lookup[$month_num]['lower'];
             }
         }
-        return !empty($labels) ? [
-            'labels' => $labels,
-            'data' => $data,
-            'upper_bounds' => $upper_bounds,
-            'lower_bounds' => $lower_bounds
-        ] : null;
+        return !empty($labels) ? ['labels' => $labels, 'data' => $data, 'upper_bounds' => $upper_bounds, 'lower_bounds' => $lower_bounds] : null;
     }
 
-    // --- FUNGSI UNTUK MENDAPATKAN DATA PREDIKSI DASARIAN ---
-    private function getDasPredictionData($lat, $lon, $normal_bounds_lookup)
+    private function getDasPredictionDataByLocation($locations)
     {
-        $latest_version = ClimateDasPrediction::select('prediction_version')
-            ->distinct()
-            ->orderBy('prediction_version', 'desc')
-            ->first();
-
-        if (!$latest_version)
+        $latest = ClimateDasPrediction::orderBy('prediction_version', 'desc')->first();
+        if (!$latest)
             return null;
 
-        $today = now();
-        $day = $today->day;
-        $month = $today->month;
-        $year = $today->year;
-
-        $periods = ClimateDasPrediction::select('prediction_das_period')
-            ->where('prediction_version', $latest_version->prediction_version)
-            ->distinct()
-            ->orderBy('prediction_das_period', 'asc')
-            ->limit(3)
-            ->get()->pluck('prediction_das_period');
-
-        if ($periods->isEmpty())
-            return null;
+        $periods = ClimateDasPrediction::where('prediction_version', $latest->prediction_version)
+            ->distinct()->orderBy('prediction_das_period', 'asc')->limit(3)->pluck('prediction_das_period');
 
         $labels = [];
         $data = [];
         $upper_bounds = [];
         $lower_bounds = [];
-        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
 
         foreach ($periods as $period) {
-            $nearest = ClimateDasPrediction::select('val')
-                ->where('prediction_version', $latest_version->prediction_version)
-                ->where('prediction_das_period', $period)
-                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+            $aggregates = ClimateDasPrediction::where('prediction_das_period', $period)
+                ->where('prediction_version', $latest->prediction_version)
+                ->whereIn('location', $locations)
+                ->selectRaw('AVG(val) as avg_val, AVG(sh) as avg_sh')
                 ->first();
 
-            if ($nearest) {
+            if ($aggregates && !is_null($aggregates->avg_val)) {
                 $labels[] = $this->formatDasLabel($period);
-                $data[] = round($nearest->val, 0);
+                $val = (float) $aggregates->avg_val;
+                $sh = (float) $aggregates->avg_sh;
+                $data[] = round($val, 0);
 
-                try {
-                    $parts = explode('-', $period);
-                    $month_number = (int) $parts[1];
-                    $upper_bounds[] = $normal_bounds_lookup[$month_number]['upper'];
-                    $lower_bounds[] = $normal_bounds_lookup[$month_number]['lower'];
-                } catch (\Exception $e) {
-                    $upper_bounds[] = null;
+                if ($sh > 0) {
+                    $lower_bounds[] = round((85 * $val) / $sh, 0);
+                    $upper_bounds[] = round((115 * $val) / $sh, 0);
+                } else {
                     $lower_bounds[] = null;
+                    $upper_bounds[] = null;
                 }
             }
         }
-        return !empty($labels) ? [
-            'labels' => $labels,
-            'data' => $data,
-            'upper_bounds' => $upper_bounds,
-            'lower_bounds' => $lower_bounds
-        ] : null;
+        return !empty($labels) ? ['labels' => $labels, 'data' => $data, 'upper_bounds' => $upper_bounds, 'lower_bounds' => $lower_bounds] : null;
     }
 
-    // --- FUNGSI BARU UNTUK MENGAMBIL DATA PELUANG DASARIAN ---
-    private function getDasProbabilityData($lat, $lon)
+    private function getDasProbabilityDataByLocation($locations)
     {
-        $latest_version = ClimateDasProbability::select('prediction_version')
-            ->distinct()
-            ->orderBy('prediction_version', 'desc')
-            ->first();
-
-        if (!$latest_version)
+        $latest = ClimateDasProbability::orderBy('prediction_version', 'desc')->first();
+        if (!$latest)
             return null;
 
-        // Ambil periode dasarian yang tersedia setelah periode saat ini
-        $periods = ClimateDasProbability::select('prediction_das_period')
-            ->where('prediction_version', $latest_version->prediction_version)
-            ->distinct()
-            ->orderBy('prediction_das_period', 'asc')
-            ->limit(3)
-            ->get()->pluck('prediction_das_period');
+        $periods = ClimateDasProbability::where('prediction_version', $latest->prediction_version)
+            ->distinct()->orderBy('prediction_das_period', 'asc')->limit(3)->pluck('prediction_das_period');
 
-        if ($periods->isEmpty())
-            return null;
-
-        $prob_columns = [
-            'b20',
-            'b50',
-            'b100',
-            'b150',
-            'a20',
-            'a50',
-            'a100',
-            'a150',
-            'a200',
-            'a300'
-        ];
+        $cols = ['b20', 'b50', 'b100', 'b150', 'a20', 'a50', 'a100', 'a150', 'a200', 'a300'];
+        $avg_sql = implode(', ', array_map(fn($c) => "AVG(`$c`) as `$c`", $cols));
 
         $labels = [];
-        $data_arrays = array_fill_keys($prob_columns, []);
-        $point_string = "ST_GeomFromText('POINT($lon $lat)')";
+        $data_arrays = array_fill_keys($cols, []);
 
-        // Loop melalui setiap periode dasarian
         foreach ($periods as $period) {
-            $nearest = ClimateDasProbability::select($prob_columns)
-                ->where('prediction_version', $latest_version->prediction_version)
-                ->where('prediction_das_period', $period)
-                ->orderByRaw("ST_Distance_Sphere(location, $point_string)")
+            $avg_data = ClimateDasProbability::where('prediction_das_period', $period)
+                ->where('prediction_version', $latest->prediction_version)
+                ->whereIn('location', $locations)
+                ->selectRaw($avg_sql)
                 ->first();
 
-            if ($nearest) {
+            if ($avg_data && !is_null($avg_data->b20)) {
                 $labels[] = $this->formatDasLabel($period);
-
-                foreach ($prob_columns as $col) {
-                    $data_arrays[$col][] = round($nearest->$col, 0);
+                foreach ($cols as $c) {
+                    $data_arrays[$c][] = round($avg_data->$c, 0);
                 }
             }
         }
         return !empty($labels) ? array_merge(['labels' => $labels], $data_arrays) : null;
     }
-    // === FUNGSI UNTUK PEMANGGILAN DATA END ===
 
+    // --- FUNGSI UTAMA API ---
 
-    // === FUNGSI BANTUAN LAINNYA START ===
-    // Format label dasarian menjadi "Das X Bulan Tahun" dalam Bahasa Indonesia
-    private function formatDasLabel($period_string)
+    public function getClimateData(Request $request)
     {
         try {
-            $parts = explode('-', $period_string);
-            $year = $parts[0];
-            $month_number = (int) $parts[1];
-            $das = $parts[2];
-            $monthNameId = $this->monthNamesId[$month_number] ?? '';
-            return "Das $das {$monthNameId} $year";
-        } catch (\Exception $e) {
-            return $period_string;
-        }
-    }
+            $validator = Validator::make($request->all(), ['kecamatan' => 'required|string']);
+            if ($validator->fails())
+                return response()->json(['error' => $validator->errors()->first()], 400);
 
-    // Fungsi untuk menggabungkan array menjadi string dengan "dan" sebelum item terakhir
-    private function formatListAnd(array $items)
-    {
-        if (empty($items)) {
-            return '';
-        }
+            $userInput = $request->input('kecamatan');
+            $parts = array_map('trim', explode(',', $userInput));
 
-        $count = count($items);
+            $targetData = $this->getTargetLocations($parts[0], $parts[1] ?? null);
+            if (!$targetData)
+                return response()->json(['error' => 'Data wilayah tidak ditemukan.'], 404);
 
-        if ($count === 1) {
-            return $items[0];
-        }
+            $locations = $targetData['locations'];
+            $locationInfo = $targetData['info'];
 
-        if ($count === 2) {
-            return implode(' dan ', $items);
-        }
+            $normalData = $this->getNormalDataByLocation($locations, $locationInfo);
+            if (!$normalData)
+                return response()->json(['error' => 'Data iklim tidak tersedia.'], 404);
 
-        $lastItem = array_pop($items);
-        return implode(', ', $items) . ', dan ' . $lastItem;
-    }
-
-    private function formatMonthYear($period_string)
-    {
-        try {
-            // 1. Bersihkan string dari spasi/karakter tak terlihat & jadikan string.
-            $period_string = trim((string) $period_string);
-
-            $year = null;
-            $month_number = null;
-
-            // 2. Jika formatnya YYYY-MM (misal: 2025-11), proses langsung
-            if (preg_match('/^\d{4}-\d{1,2}$/', $period_string)) {
-                $parts = explode('-', $period_string);
-                $year = $parts[0];
-                $month_number = (int) $parts[1];
-
-                // 3. Jika formatnya Mmm-YY (misal: Sep-25 atau Nov-25), konversi menggunakan strtotime
-            } elseif (preg_match('/^[A-Za-z]{3}-\d{2}$/', $period_string)) {
-                // Tambahkan '01-' di depan agar strtotime mengenali format tanggal/bulan/tahun
-                $timestamp = strtotime("01-" . $period_string);
-                if ($timestamp === false)
-                    throw new \Exception("Invalid date format: " . $period_string);
-                $year = date('Y', $timestamp);
-                $month_number = (int) date('m', $timestamp);
-
-            } else {
-                // Fallback untuk mencoba parse tanggal apa pun yang mungkin tersisa
-                $date_parts = date_parse($period_string);
-                if ($date_parts['error_count'] > 0 || $date_parts['month'] == 0 || $date_parts['year'] == 0) {
-                    return $period_string; // Kembalikan string asli jika gagal total
-                }
-                $year = $date_parts['year'];
-                $month_number = $date_parts['month'];
+            $normal_bounds_lookup = [];
+            foreach ($normalData['data'] as $i => $val) {
+                $normal_bounds_lookup[$i + 1] = ['upper' => round($val * 1.15, 0), 'lower' => round($val * 0.85, 0)];
             }
 
-            $monthNameId = $this->monthNamesId[$month_number] ?? '';
-            return "{$monthNameId} {$year}";
+            $analysisData = $this->getAnalysisDataByLocation($locations, $normal_bounds_lookup);
+            $dasPredictionData = $this->getDasPredictionDataByLocation($locations);
+            $dasProbabilityData = $this->getDasProbabilityDataByLocation($locations);
+            $predictionData = $this->getPredictionDataByLocation($locations, $normal_bounds_lookup);
+
+            return response()->json([
+                'locationName' => $normalData['locationName'],
+                'intro_narrative' => $this->generateIntroNarrative($normalData['locationName']),
+                'normal' => [
+                    '12_months' => ['labels' => ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGS', 'SEP', 'OKT', 'NOV', 'DES'], 'data' => $normalData['data'], 'data_upper_bound' => array_column($normal_bounds_lookup, 'upper'), 'data_lower_bound' => array_column($normal_bounds_lookup, 'lower')],
+                    '24_months' => ['labels' => array_merge(['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGS', 'SEP', 'OKT', 'NOV', 'DES'], ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGS', 'SEP', 'OKT', 'NOV', 'DES']), 'data' => array_merge($normalData['data'], $normalData['data']), 'data_upper_bound' => array_merge(array_column($normal_bounds_lookup, 'upper'), array_column($normal_bounds_lookup, 'upper')), 'data_lower_bound' => array_merge(array_column($normal_bounds_lookup, 'lower'), array_column($normal_bounds_lookup, 'lower'))],
+                    'narrative' => $this->generateNormalNarrative($normalData, $normalData['locationName']),
+                ],
+                'analysis' => $analysisData ? array_merge($analysisData, ['narrative' => $this->generateAnalysisNarrative($analysisData, $normalData['locationName'])]) : null,
+                'das_prediction' => $dasPredictionData ? array_merge($dasPredictionData, ['narrative' => $this->generateDasCombinedNarrative($dasPredictionData, $dasProbabilityData, $normalData['locationName'])]) : null,
+                'das_probability' => $dasProbabilityData,
+                'prediction' => $predictionData ? array_merge($predictionData, ['narrative' => $this->generatePredictionNarrative($predictionData, $normalData['locationName'])]) : null,
+            ]);
 
         } catch (\Exception $e) {
-            return $period_string; // Kembalikan string mentah jika ada error
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
-    // === FUNGSI BANTUAN LAINNYA END ===
 
+    public function downloadClimateData(Request $request)
+    {
+        // 1. Validasi Input
+        $validator = Validator::make($request->all(), ['kecamatan' => 'required|string']);
+        if ($validator->fails()) {
+            return response()->json(['error' => 'Input wilayah diperlukan.'], 400);
+        }
 
-    // === FUNGSI UNTUK MEMANGGIL NARASI START ===
+        $userInput = $request->input('kecamatan');
+        $parts = array_map('trim', explode(',', $userInput));
+
+        // 2. Tahap Geospasial: Dapatkan list geometri lokasi (location)
+        // Ini memastikan data yang didownload sama persis dengan yang ada di grafik chat
+        $targetData = $this->getTargetLocations($parts[0], $parts[1] ?? null);
+
+        if (!$targetData) {
+            return response()->json(['error' => 'Data lokasi tidak ditemukan untuk download.'], 404);
+        }
+
+        $locations = $targetData['locations'];
+        $locationInfo = $targetData['info'];
+
+        // 3. Ambil Seluruh Data Berbasis Array Lokasi (Geometri)
+        $normalData = $this->getNormalDataByLocation($locations, $locationInfo);
+
+        if (!$normalData) {
+            return response()->json(['error' => 'Gagal mengambil data normal untuk download.'], 404);
+        }
+
+        // Siapkan lookup batas normal bulanan (statis 85% - 115%)
+        $normal_bounds_lookup = [];
+        foreach ($normalData['data'] as $i => $val) {
+            $normal_bounds_lookup[$i + 1] = [
+                'upper' => round($val * 1.15, 2),
+                'lower' => round($val * 0.85, 2)
+            ];
+        }
+
+        // Ambil data lainnya menggunakan list geometri yang sama
+        $analysisData = $this->getAnalysisDataByLocation($locations, $normal_bounds_lookup);
+        $predictionData = $this->getPredictionDataByLocation($locations, $normal_bounds_lookup);
+        $dasPredictionData = $this->getDasPredictionDataByLocation($locations);
+        $dasProbabilityData = $this->getDasProbabilityDataByLocation($locations);
+
+        // 4. Menyusun Baris Data CSV
+        $dataRows = [];
+        $dataRows[] = ["Provinsi: " . ucfirst($locationInfo->province)];
+        $dataRows[] = ["Kabupaten/Kota: " . ucfirst($locationInfo->regency)];
+        $dataRows[] = ["Kecamatan: " . ucfirst($locationInfo->kecamatan)];
+        $dataRows[] = [];
+
+        // A. Seksi Data Normal (1991-2020)
+        $dataRows[] = ['DATA NORMAL'];
+        $dataRows[] = ['Bulan', 'Rata-Rata CH (mm)', 'Batas Atas (mm)', 'Batas Bawah (mm)'];
+        $monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+        foreach ($normalData['data'] as $index => $value) {
+            $monthNum = $index + 1;
+            $dataRows[] = [
+                $monthNames[$index],
+                $this->formatToLocalString($value),
+                $this->formatToLocalString($normal_bounds_lookup[$monthNum]['upper']),
+                $this->formatToLocalString($normal_bounds_lookup[$monthNum]['lower'])
+            ];
+        }
+        $dataRows[] = [];
+
+        // B. Seksi Data Analisis (3 Bulan Terakhir)
+        if ($analysisData) {
+            $dataRows[] = ['DATA ANALISIS'];
+            $dataRows[] = ['Periode', 'CH Aktual (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
+
+            foreach ($analysisData['labels'] as $index => $period) {
+                $value = $analysisData['data'][$index] ?? 0;
+                $upper = $analysisData['upper_bounds'][$index] ?? 0;
+                $lower = $analysisData['lower_bounds'][$index] ?? 0;
+
+                $status = 'Normal';
+                if ($value > $upper)
+                    $status = 'Atas Normal (Lebih Basah)';
+                elseif ($value < $lower)
+                    $status = 'Bawah Normal (Lebih Kering)';
+
+                $dataRows[] = [
+                    $period, // Label dasarian/bulan sudah terformat
+                    $this->formatToLocalString($value),
+                    $this->formatToLocalString($upper),
+                    $this->formatToLocalString($lower),
+                    $status
+                ];
+            }
+            $dataRows[] = [];
+        }
+
+        // C. Seksi Data Prediksi Dasarian (3 Dasarian ke Depan)
+        // Batas atas/bawah di sini sudah menggunakan rumus 85*val/sh sesuai getDasPredictionDataByLocation
+        if ($dasPredictionData) {
+            $dataRows[] = ['DATA PREDIKSI DASARIAN'];
+            $dataRows[] = ['Periode Dasarian', 'CH Prediksi (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
+            foreach ($dasPredictionData['labels'] as $index => $periodLabel) {
+                $value = $dasPredictionData['data'][$index];
+                $upper = $dasPredictionData['upper_bounds'][$index];
+                $lower = $dasPredictionData['lower_bounds'][$index];
+
+                $status = 'Normal';
+                if ($value > $upper)
+                    $status = 'Atas Normal (Lebih Basah)';
+                elseif ($value < $lower)
+                    $status = 'Bawah Normal (Lebih Kering)';
+
+                $dataRows[] = [
+                    $periodLabel,
+                    $this->formatToLocalString($value),
+                    $this->formatToLocalString($upper),
+                    $this->formatToLocalString($lower),
+                    $status
+                ];
+            }
+            $dataRows[] = [];
+        }
+
+        // D. Seksi Data Peluang Dasarian
+        if ($dasProbabilityData) {
+            $dataRows[] = ['DATA PELUANG DASARIAN'];
+            $probColumns = ['b20', 'b50', 'b100', 'b150', 'a20', 'a50', 'a100', 'a150', 'a200', 'a300'];
+            $header = array_merge(['Periode Dasarian'], $probColumns);
+            $dataRows[] = $header;
+
+            foreach ($dasProbabilityData['labels'] as $index => $periodLabel) {
+                $row = [$periodLabel];
+                foreach ($probColumns as $col) {
+                    $row[] = $dasProbabilityData[$col][$index] ?? '0';
+                }
+                $dataRows[] = $row;
+            }
+            $dataRows[] = [];
+        }
+
+        // E. Seksi Data Prediksi Bulanan (6 Bulan ke Depan)
+        if ($predictionData) {
+            $dataRows[] = ['DATA PREDIKSI BULANAN'];
+            $dataRows[] = ['Periode', 'CH Prediksi (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
+            foreach ($predictionData['labels'] as $index => $period) {
+                $value = $predictionData['data'][$index] ?? 0;
+                $upper = $predictionData['upper_bounds'][$index] ?? 0;
+                $lower = $predictionData['lower_bounds'][$index] ?? 0;
+
+                $status = 'Normal';
+                if ($value > $upper)
+                    $status = 'Atas Normal (Lebih Basah)';
+                elseif ($value < $lower)
+                    $status = 'Bawah Normal (Lebih Kering)';
+
+                $dataRows[] = [
+                    $period,
+                    $this->formatToLocalString($value),
+                    $this->formatToLocalString($upper),
+                    $this->formatToLocalString($lower),
+                    $status
+                ];
+            }
+            $dataRows[] = [];
+        }
+
+        $dataRows[] = ['Data ini berasal dari arsip operasional/official BMKG.'];
+        $dataRows[] = ['DISCLAIMER: SEMUA KEPUTUSAN YANG DIBUAT BERDASARKAN DATA INI MENJADI TANGGUNG JAWAB PENGGUNA.'];
+
+        // 5. Konversi ke Format CSV
+        $csvContent = "\xEF\xBB\xBF"; // UTF-8 BOM agar Excel membaca karakter khusus dengan benar
+        foreach ($dataRows as $row) {
+            $csvContent .= implode(';', $row) . "\n";
+        }
+
+        $safeName = str_replace(' ', '_', strtolower($locationInfo->kecamatan));
+        $fileName = 'Data_Iklim_' . $safeName . '_' . date('Ymd') . '.csv';
+
+        return response($csvContent, 200)
+            ->header('Content-Type', 'text/csv; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="' . $fileName . '"');
+    }
+
+    // --- FUNGSI FORMATTING & BANTUAN ---
+
+    public function searchKecamatan(Request $request)
+    {
+        $term = $request->query('term');
+        if (strlen($term) < 2)
+            return response()->json([]);
+        $data = LocationGrid::select('kecamatan', 'regency')->where('kecamatan', 'LIKE', $term . '%')->distinct()->limit(10)->get();
+        return response()->json($data->map(fn($item) => ['value' => ucwords(strtolower($item->kecamatan)), 'display' => ucwords(strtolower($item->kecamatan . ', ' . $item->regency))]));
+    }
+
+    private function formatToLocalString($value)
+    {
+        return is_numeric($value) ? number_format((float) $value, 0, ',', '.') : $value;
+    }
+
+    private function formatDasLabel($period)
+    {
+        try {
+            $p = explode('-', $period);
+            return "Das {$p[2]} " . ($this->monthNamesId[(int) $p[1]] ?? '') . " {$p[0]}";
+        } catch (\Exception $e) {
+            return $period;
+        }
+    }
+
+    private function formatMonthYear($period)
+    {
+        try {
+            $p = explode('-', $period);
+            return ($this->monthNamesId[(int) $p[1]] ?? '') . " {$p[0]}";
+        } catch (\Exception $e) {
+            return $period;
+        }
+    }
+
+    private function formatListAnd(array $items)
+    {
+        if (empty($items))
+            return '';
+        if (count($items) === 1)
+            return $items[0];
+        $last = array_pop($items);
+        return implode(', ', $items) . ' dan ' . $last;
+    }
+
+    private function sanitizeNarrativeText($html)
+    {
+        $html = str_ireplace(['<strong>', '</strong>'], ['__S__', '__SE__'], $html);
+        $html = str_replace(['<', '>'], ['&lt;', '&gt;'], $html);
+        return str_ireplace(['__S__', '__SE__'], ['<strong>', '</strong>'], $html);
+    }
+
     // --- FUNGSI UNTUK NARASI INTRO ---
     private function generateIntroNarrative($locationName)
     {
@@ -499,15 +568,18 @@ class ChatController extends Controller
             'troughMonth' => $troughMonth,
             'maxRain' => round($maxRain),
             'minRain' => round($minRain),
-            // KIRIMKAN ARRAY MENTAH
+
             'kategoriTinggiMonths' => $kategoriTinggiMonths,
             'kategoriRendahMonths' => $kategoriRendahMonths,
             'musimKemarauMonths' => $musimKemarauMonths,
             'templateId' => rand(1, 5)
         ];
-        return View::make("narratives.normal", $viewData)->render();
+        $narrative = View::make("narratives.normal", $viewData)->render();
+
+        return $this->sanitizeNarrativeText($narrative);
     }
 
+    // --- FUNGSI UNTUK NARASI ANALYSIS ---
     private function generateAnalysisNarrative($analysisData, $locationName)
     {
         if (empty($analysisData['data']) || count($analysisData['data']) < 2)
@@ -524,7 +596,6 @@ class ChatController extends Controller
 
         foreach ($real_data as $index => $value) {
             $month_number = (int) date('n', strtotime($real_labels[$index]));
-            // Ambil nama bulan dalam Bahasa Indonesia
             $month_name = $this->monthNamesId[$month_number] ?? $real_labels[$index];
             $month_info = "{$month_name} (" . round($value) . " mm)";
 
@@ -571,6 +642,7 @@ class ChatController extends Controller
         return View::make("narratives.analysis", $viewData)->render();
     }
 
+    // --- FUNGSI UNTUK NARASI PREDICTION ---
     private function generatePredictionNarrative($predictionData, $locationName)
     {
         if (empty($predictionData['data']))
@@ -621,17 +693,16 @@ class ChatController extends Controller
         return View::make("narratives.prediction", $viewData)->render();
     }
 
+    // --- FUNGSI BARU UNTUK NARASI GABUNGAN DASARIAN ---
     private function generateDasCombinedNarrative($dasPredictionData, $dasProbabilityData, $locationName)
     {
-        // Bagian 1: Siapkan Data Prediksi (dari fungsi lama)
-        // Kita harus tetap menjalankan ini, karena narasi gabungan memerlukannya
         $labels = $dasPredictionData['labels'];
         $data = $dasPredictionData['data'];
         $upper_bounds = $dasPredictionData['upper_bounds'];
         $lower_bounds = $dasPredictionData['lower_bounds'];
         $count = count($labels);
         if ($count == 0)
-            return ""; // Harus ada data prediksi
+            return "";
 
         $detailsPred = [];
         for ($i = 0; $i < $count; $i++) {
@@ -654,15 +725,12 @@ class ChatController extends Controller
         }
         $listDetailsPred = ($count > 0) ? implode(', ', $detailsPred) . "." : "";
 
-
-        // Bagian 2: Siapkan Data Peluang (Logika Dinamis Baru)
         $listDetailsProb = null;
         $defaultProbThreshold = null;
 
         if ($dasProbabilityData && !empty($dasProbabilityData['labels'])) {
-            // Kita pilih satu threshold default untuk ditampilkan di narasi, misal 'a20'
             $defaultProbKey = 'a20';
-            $defaultProbThreshold = "lebih dari 20 mm"; // Teks deskripsi untuk 'a20'
+            $defaultProbThreshold = "lebih dari 20 mm";
 
             $prob_labels = $dasProbabilityData['labels'];
             $prob_data = $dasProbabilityData[$defaultProbKey];
@@ -671,364 +739,24 @@ class ChatController extends Controller
 
             if ($prob_count > 0) {
                 for ($i = 0; $i < $prob_count; $i++) {
-                    // Cek jika data ada di index tsb
                     if (isset($prob_data[$i]) && isset($prob_labels[$i])) {
                         $prob_details_parts[] = "<strong>" . round($prob_data[$i]) . "%</strong> pada <strong>" . $prob_labels[$i] . "</strong>";
                     }
                 }
 
-                // Logika "Smart Implode" untuk menggabungkan dengan "serta"
                 $listDetailsProb = $this->formatListAnd($prob_details_parts);
             }
         }
 
-        // Bagian 3: Kirim semua data ke file Blade baru
         $viewData = [
             'locationName' => $locationName,
-            'listDetailsPred' => $listDetailsPred,      // Data untuk narasi prediksi
-            'listDetailsProb' => $listDetailsProb,      // Data untuk narasi peluang (bisa null)
-            'defaultProbThreshold' => $defaultProbThreshold, // Deskripsi peluang (bisa null)
+            'listDetailsPred' => $listDetailsPred,
+            'listDetailsProb' => $listDetailsProb,
+            'defaultProbThreshold' => $defaultProbThreshold,
             'templateId' => rand(1, 5)
         ];
 
-        // Panggil file blade BARU
         return View::make("narratives.das_combined", $viewData)->render();
     }
 
-    // --- FUNGSI UTAMA (DIMODIFIKASI) ---
-    public function getClimateData(Request $request)
-    {
-        try {
-
-            $validator = Validator::make($request->all(), ['kecamatan' => 'required|string']);
-            if ($validator->fails()) {
-                return response()->json(['error' => $validator->errors()->first()], 400);
-            }
-
-            $userInput = $request->input('kecamatan');
-            $targetLat = null;
-            $targetLon = null;
-            $locationName = $userInput;
-
-            if (preg_match('/^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/', $userInput, $matches)) {
-                $lat = $matches[1];
-                $lon = $matches[2];
-                $normalData = $this->getNormalData($lat, $lon, null, null);
-            } else {
-                $parts = array_map('trim', explode(',', $userInput));
-                $kecamatan = $parts[0];
-                $regency = $parts[1] ?? null;
-                $normalData = $this->getNormalData(null, null, $kecamatan, $regency);
-            }
-
-            if (!$normalData) {
-                return response()->json(['error' => 'Data untuk "' . $userInput . '" tidak ditemukan. Pastikan nama kecamatan atau format koordinat (lat, lon) benar.'], 404);
-            }
-
-            $targetLat = $normalData['coords']['lat'];
-            $targetLon = $normalData['coords']['lon'];
-            $locationName = $normalData['locationName'];
-
-            $normal_upper_bounds = array_map(fn($val) => round($val * 1.15, 2), $normalData['data']);
-            $normal_lower_bounds = array_map(fn($val) => round($val * 0.85, 2), $normalData['data']);
-            $normal_bounds_lookup = [];
-            for ($i = 0; $i < 12; $i++) {
-                $normal_bounds_lookup[$i + 1] = [
-                    'upper' => $normal_upper_bounds[$i],
-                    'lower' => $normal_lower_bounds[$i]
-                ];
-            }
-
-            // --- 4. PANGGIL SEMUA FUNGSI PENGAMBIL DATA ---
-            $analysisData = $this->getAnalysisData($targetLat, $targetLon, $normal_bounds_lookup);
-            $dasPredictionData = $this->getDasPredictionData($targetLat, $targetLon, $normal_bounds_lookup);
-            // Panggil fungsi data peluang baru
-            $dasProbabilityData = $this->getDasProbabilityData($targetLat, $targetLon);
-            $predictionData = $this->getPredictionData($targetLat, $targetLon, $normal_bounds_lookup);
-
-            // --- 5. PANGGIL SEMUA FUNGSI NARASI ---
-            $introNarrative = $this->generateIntroNarrative($locationName);
-            $normalNarrative = $this->generateNormalNarrative($normalData, $locationName);
-            $analysisNarrative = $analysisData ? $this->generateAnalysisNarrative($analysisData, $locationName) : null;
-            $dasCombinedNarrative = null;
-            if ($dasPredictionData) {
-                $dasCombinedNarrative = $this->generateDasCombinedNarrative(
-                    $dasPredictionData,
-                    $dasProbabilityData, // Kirim data probabilitas (bisa jadi null)
-                    $locationName
-                );
-            }
-            $predictionNarrative = $predictionData ? $this->generatePredictionNarrative($predictionData, $locationName) : null;
-
-            $labels_12_months = ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGS', 'SEP', 'OKT', 'NOV', 'DES'];
-            $data_12_months = $normalData['data'];
-            $upper_12_months = $normal_upper_bounds;
-            $lower_12_months = $normal_lower_bounds;
-
-            $labels_24_months = array_merge($labels_12_months, $labels_12_months);
-            $data_24_months = array_merge($data_12_months, $data_12_months);
-            $upper_24_months = array_merge($upper_12_months, $upper_12_months);
-            $lower_24_months = array_merge($lower_12_months, $lower_12_months);
-
-            // --- 6. KIRIM SEMUA DATA KE JSON RESPONSE ---
-            return response()->json([
-                'locationName' => $locationName,
-                'intro_narrative' => $introNarrative,
-                'normal' => [
-                    '12_months' => [
-                        'labels' => $labels_12_months,
-                        'data' => $data_12_months,
-                        'data_upper_bound' => $upper_12_months,
-                        'data_lower_bound' => $lower_12_months,
-                    ],
-                    '24_months' => [
-                        'labels' => $labels_24_months,
-                        'data' => $data_24_months,
-                        'data_upper_bound' => $upper_24_months,
-                        'data_lower_bound' => $lower_24_months,
-                    ],
-                    'narrative' => $normalNarrative,
-                ],
-                'analysis' => $analysisData ? array_merge($analysisData, ['narrative' => $analysisNarrative]) : null,
-                'das_prediction' => $dasPredictionData
-                    ? array_merge($dasPredictionData, ['narrative' => $dasCombinedNarrative])
-                    : null,
-                // Atur 'das_probability.narrative' ke null agar tidak tampil dua kali
-                'das_probability' => $dasProbabilityData
-                    ? array_merge($dasProbabilityData, ['narrative' => null])
-                    : null,
-                'prediction' => $predictionData ? array_merge($predictionData, ['narrative' => $predictionNarrative]) : null,
-            ]);
-
-
-        } catch (\Exception $e) {
-            // Opsional: Log error ke Laravel logs
-            \Illuminate\Support\Facades\Log::error('Climate Data Error: ' . $e->getMessage() . ' on line ' . $e->getLine());
-
-            // Kembalikan response error dengan pesan yang lebih detail
-            return response()->json([
-                // Pesan ini hanya untuk debugging, Anda bisa ganti dengan pesan generik
-                'error' => 'Terjadi kesalahan internal: ' . $e->getMessage() . ' (Line: ' . $e->getLine() . ')',
-                'debug' => env('APP_DEBUG') ? $e->getTraceAsString() : null
-            ], 500);
-        }
-
-    }
-
-    public function searchKecamatan(Request $request)
-    {
-        $term = $request->query('term');
-        if (empty($term) || strlen($term) < 2) {
-            return response()->json([]);
-        }
-
-        // Menggunakan LocationGrid untuk pencarian, tidak lagi ClimateNormal
-        $data = LocationGrid::select('kecamatan', 'regency')
-            ->where('kecamatan', 'LIKE', $term . '%')
-            ->distinct()
-            ->limit(10)
-            ->get();
-
-        $results = $data->map(function ($item) {
-            $kecamatan = ucwords(strtolower($item->kecamatan));
-            $regency = ucwords(strtolower($item->regency));
-
-            return [
-                // Penting: Mengembalikan format yang sama seperti sebelumnya
-                'value' => $kecamatan,
-                'display' => $kecamatan . ', ' . $regency
-            ];
-        });
-
-        return response()->json($results);
-    }
-
-    private function formatToLocalString($value)
-    {
-        if (is_numeric($value)) {
-            // Kita ingin membatasi hingga 2 desimal (sesuai data Anda) dan
-            // menggunakan koma (,) sebagai desimal dan titik (.) sebagai ribuan.
-            return number_format((float) $value, 2, ',', '.');
-        }
-        return $value;
-    }
-    public function downloadClimateData(Request $request)
-    {
-        // 1. Validasi Input (Sama seperti getClimateData)
-        $validator = Validator::make($request->all(), ['kecamatan' => 'required|string']);
-        if ($validator->fails()) {
-            return response()->json(['error' => 'Input wilayah diperlukan.'], 400);
-        }
-
-        $userInput = $request->input('kecamatan');
-        $targetLat = null;
-        $targetLon = null;
-        $locationName = $userInput;
-
-        // 2. Cari Data Normal untuk mendapatkan Koordinat
-        if (preg_match('/^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/', $userInput, $matches)) {
-            $lat = $matches[1];
-            $lon = $matches[2];
-            $normalData = $this->getNormalData($lat, $lon, null, null);
-        } else {
-            $parts = array_map('trim', explode(',', $userInput));
-            $kecamatan = $parts[0];
-            $regency = $parts[1] ?? null;
-            $normalData = $this->getNormalData(null, null, $kecamatan, $regency);
-        }
-
-        if (!$normalData) {
-            return response()->json(['error' => 'Data lokasi tidak ditemukan untuk download.'], 404);
-        }
-
-        $targetLat = $normalData['coords']['lat'];
-        $targetLon = $normalData['coords']['lon'];
-        $locationName = $normalData['locationName'];
-        $provinces = $normalData['province'];
-        $regencys = $normalData['regency'];
-        $kecamatans = $normalData['kecamatan'];
-        $province = ucfirst($provinces);
-        $regency = ucfirst($regencys);
-        $kecamatan = ucfirst($kecamatans);
-
-        // 3. Tentukan batas normal untuk digunakan di fungsi data lainnya
-        $normal_data = $normalData['data']; // Data 12 bulan
-        $normal_bounds_lookup = [];
-        for ($i = 0; $i < 12; $i++) {
-            $normal_bounds_lookup[$i + 1] = [
-                'upper' => round($normal_data[$i] * 1.15, 2),
-                'lower' => round($normal_data[$i] * 0.85, 2)
-            ];
-        }
-
-        // 4. Ambil semua data
-        $analysisData = $this->getAnalysisData($targetLat, $targetLon, $normal_bounds_lookup);
-        $predictionData = $this->getPredictionData($targetLat, $targetLon, $normal_bounds_lookup);
-        $dasPredictionData = $this->getDasPredictionData($targetLat, $targetLon, $normal_bounds_lookup);
-        $dasProbabilityData = $this->getDasProbabilityData($targetLat, $targetLon);
-
-        // 5. Konsolidasikan data ke dalam format datar (Flattening Data)
-        $dataRows = [];
-
-        // Header Metadata
-        // $dataRows[] = ['Tipe Data', 'Periode', 'Nilai (mm/das/bulan)', 'Keterangan'];
-        $dataRows[] = ["Provinsi: {$province}"];
-        $dataRows[] = ["Kabupaten/Kota: {$regency}"];
-        $dataRows[] = ["Kecamatan: {$kecamatan}"];
-        // $dataRows[] = ["Lokasi: {$locationName} (Lat: {$targetLat}, Lon: {$targetLon})"];
-        $dataRows[] = [];
-
-        // A. Data Normal (1991-2020)
-        $dataRows[] = ['DATA NORMAL'];
-        $dataRows[] = ['Bulan', 'Rata-Rata CH (mm)', 'Batas Atas (mm)', 'Batas Bawah (mm)'];
-        $monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-
-        foreach ($normalData['data'] as $index => $value) {
-            $month = $monthNames[$index];
-            $upper = $normal_bounds_lookup[$index + 1]['upper'];
-            $lower = $normal_bounds_lookup[$index + 1]['lower'];
-            $dataRows[] = [$month, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower)];
-        }
-        $dataRows[] = [];
-
-        // B. Data Analisis (3 Bulan Terakhir)
-        if ($analysisData) {
-            $dataRows[] = ['DATA ANALISIS'];
-            $dataRows[] = ['Periode', 'CH Aktual (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
-
-            foreach ($analysisData['labels'] as $index => $period) {
-                $formattedPeriod = $this->formatMonthYear($period);
-
-                // --- START PERUBAHAN 1: Mengatasi Nilai NULL yang Menggeser Kolom ---
-                $value = $analysisData['data'][$index] ?? 0; // Jika null, anggap 0
-                $upper = $analysisData['upper_bounds'][$index] ?? 0;
-                $lower = $analysisData['lower_bounds'][$index] ?? 0;
-                // --- END PERUBAHAN 1 ---
-
-                $status = 'Normal';
-                if ($value > $upper)
-                    $status = 'Atas Normal (Lebih Basah)';
-                elseif ($value < $lower)
-                    $status = 'Bawah Normal (Lebih Kering)';
-
-                $dataRows[] = [$formattedPeriod, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
-            }
-            $dataRows[] = [];
-        }
-
-        // C. Data Prediksi Bulanan (6 Bulan ke Depan)
-        if ($predictionData) {
-            $dataRows[] = ['DATA PREDIKSI BULANAN'];
-            $dataRows[] = ['Periode', 'CH Prediksi (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
-            foreach ($predictionData['labels'] as $index => $period) {
-                $formattedPeriod = $this->formatMonthYear($period);
-
-                // --- START PERUBAHAN 2: Mengatasi Nilai NULL yang Menggeser Kolom ---
-                $value = $predictionData['data'][$index] ?? 0; // Jika null, anggap 0
-                $upper = $predictionData['upper_bounds'][$index] ?? 0;
-                $lower = $predictionData['lower_bounds'][$index] ?? 0;
-                // --- END PERUBAHAN 2 ---
-
-                $status = 'Normal';
-                if ($value > $upper)
-                    $status = 'Atas Normal (Lebih Basah)';
-                elseif ($value < $lower)
-                    $status = 'Bawah Normal (Lebih Kering)';
-
-                $dataRows[] = [$formattedPeriod, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
-            }
-            $dataRows[] = [];
-        }
-
-        // D. Data Prediksi Dasarian (3 Dasarian ke Depan)
-        if ($dasPredictionData) {
-            $dataRows[] = ['DATA PREDIKSI DASARIAN'];
-            $dataRows[] = ['Periode Dasarian', 'CH Prediksi (mm)', 'Batas Atas Normal', 'Batas Bawah Normal', 'Status'];
-            foreach ($dasPredictionData['labels'] as $index => $periodLabel) {
-                $value = $dasPredictionData['data'][$index];
-                $upper = $dasPredictionData['upper_bounds'][$index];
-                $lower = $dasPredictionData['lower_bounds'][$index];
-                $status = 'Normal';
-                if ($value > $upper)
-                    $status = 'Atas Normal (Lebih Basah)';
-                elseif ($value < $lower)
-                    $status = 'Bawah Normal (Lebih Kering)';
-                $dataRows[] = [$periodLabel, $this->formatToLocalString($value), $this->formatToLocalString($upper), $this->formatToLocalString($lower), $status];
-            }
-            $dataRows[] = [];
-        }
-
-        // E. Data Peluang Dasarian (3 Dasarian ke Depan)
-        if ($dasProbabilityData) {
-            $dataRows[] = ['DATA PELUANG DASARIAN'];
-            $probColumns = array_keys(array_diff_key($dasProbabilityData, ['labels' => '', 'prediction_version' => '']));
-            $header = array_merge(['Periode Dasarian'], $probColumns);
-            $dataRows[] = $header;
-
-            foreach ($dasProbabilityData['labels'] as $index => $periodLabel) {
-                $row = [$periodLabel];
-                foreach ($probColumns as $col) {
-                    $row[] = $dasProbabilityData[$col][$index] ?? 'N/A';
-                }
-                $dataRows[] = $row;
-            }
-
-            $dataRows[] = ['Data ini berasal dari arsip operasional/official BMKG.'];
-            $dataRows[] = ['DISCLAIMER: SEMUA KEPUTUSAN YANG DIBUAT BERDASARKAN DATA INI MENJADI TANGGUNG JAWAB PENGGUNA.'];
-        }
-
-        // 6. Konversi ke CSV (dengan batas titik koma ';')
-        $csvContent = '';
-        foreach ($dataRows as $row) {
-            $csvContent .= implode(';', $row) . "\n";
-        }
-
-        $fileName = 'Data_Iklim_' . preg_replace('/[^A-Za-z0-9\_]/', '_', $locationName) . '_Ver_' . date('Y.m.d') . '.csv';
-
-        // 7. Mengembalikan Response Download
-        return response($csvContent, 200)
-            ->header('Content-Type', 'text/csv')
-            ->header('Content-Disposition', 'attachment; filename="' . $fileName . '"');
-
-    }
 }

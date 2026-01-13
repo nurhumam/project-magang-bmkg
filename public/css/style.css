@@ -1,4 +1,3 @@
-/* --- Global & Reset --- */
 :root {
     --sidebar-bg: #ffffff;
     --main-bg: #ffffff;
@@ -9,12 +8,12 @@
     --accent-blue: #3B82F6;
     --accent-yellow: #FBC02D;
     --yellow-dark: #D97706;
+    --sidebar-bg-mobile: rgba(240, 240, 240, 0.9);
 }
 
 * {
     margin: 0;
     padding: 0;
-    /* box-sizing: border-box; */
 }
 
 body,
@@ -31,7 +30,6 @@ html {
     display: flex;
     height: 100vh;
     width: 100%;
-    /* Disesuaikan untuk responsif */
 }
 
 /* --- Sidebar --- */
@@ -46,6 +44,7 @@ html {
 
 .sidebar-header {
     display: flex;
+    flex-wrap: nowrap;
     gap: 8px;
     margin-bottom: 20px;
 }
@@ -76,6 +75,11 @@ html {
     color: var(--text-light);
     cursor: pointer;
     transition: background-color 0.2s ease;
+    flex-shrink: 0;
+    display: flex;
+    /* Tambahan untuk sentering konten/loader */
+    align-items: center;
+    justify-content: center;
 }
 
 .icon-btn:hover {
@@ -84,12 +88,13 @@ html {
 
 .icon-btn:disabled {
     cursor: not-allowed;
-    opacity: 0.4;
+    opacity: 0.8;
+    background-color: var(--input-bg);
+    /* Beri latar belakang solid agar loader terlihat */
 }
 
-/* Sembunyikan tombol menu default (hanya muncul di mobile) */
 .mobile-only {
-    display: none;
+    display: flex;
 }
 
 .chat-history {
@@ -169,7 +174,6 @@ html {
     height: 100vh;
     position: relative;
     overflow: hidden;
-    /* Penting untuk responsif */
 }
 
 #chat-container {
@@ -259,7 +263,6 @@ html {
     align-items: center;
     margin-bottom: 12px;
     width: 96%;
-    /* padding-right: 40px; */
 }
 
 .chart-header h3 {
@@ -328,7 +331,7 @@ html {
 }
 
 .message.narrative-message {
-    margin-top: -16px;
+    margin-top: 12px;
 }
 
 .bubble.narrative-bubble {
@@ -431,7 +434,6 @@ html {
 #send-btn svg {
     width: 20px;
     height: 20px;
-    /* transform: rotate(90deg); */
 }
 
 .footer-note {
@@ -455,7 +457,6 @@ html {
     width: 4px;
     height: 100%;
     background-color: var(--accent-blue);
-    /* Pakai warna aksen biru */
     animation: bar-scale 1.2s infinite ease-in-out;
 }
 
@@ -481,12 +482,10 @@ html {
     40%,
     100% {
         transform: scaleY(0.2);
-        /* Posisi pendek */
     }
 
     20% {
         transform: scaleY(1.0);
-        /* Posisi tinggi */
     }
 }
 
@@ -494,17 +493,15 @@ html {
     display: flex;
     align-items: center;
     gap: 16px;
-    /* Jarak antara spinner dan teks */
 }
 
 #loading-text {
     font-size: 1rem;
     color: #555555;
-    /* Sedikit lebih gelap dari teks placeholder */
     font-style: italic;
 }
 
-/* --- PERBAIKAN TAMPILAN PESAN ERROR/INFO --- */
+/* --- TAMPILAN PESAN ERROR/INFO --- */
 .bubble-info {
     background-color: #f8f9fa;
     border-left: 4px solid var(--accent-yellow);
@@ -569,21 +566,17 @@ html {
 .autocomplete-results {
     position: absolute;
     bottom: 100%;
-    /* Menampilkan hasil DI ATAS input field */
     left: 0;
     right: 0;
     background-color: #ffffff;
     border: 1px solid var(--border-color);
     border-bottom: none;
-    /* Input field sudah punya border */
     border-radius: 12px 12px 0 0;
-    /* Cocokkan dengan radius input */
     max-height: 250px;
     overflow-y: auto;
     box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08);
     z-index: 10;
     display: none;
-    /* Sembunyi secara default */
 }
 
 .autocomplete-item {
@@ -595,7 +588,6 @@ html {
 
 .autocomplete-item:hover,
 .autocomplete-item.active {
-    /* 'active' untuk navigasi keyboard (opsional) */
     background-color: var(--input-bg);
 }
 
@@ -617,69 +609,126 @@ html {
     background-color: #e0e0e0;
 }
 
-/* --- AKHIR CSS BARU DROPDOWN --- */
-
 /* --- CSS BARU UNTUK GRAFIK BERDAMPINGAN --- */
 .chart-row-container {
     display: flex;
     flex-direction: row;
     gap: 16px;
     flex-wrap: wrap;
-    /* Akan menumpuk di layar kecil */
     width: 100%;
 }
 
-/* Target bubble di dalam container baru */
 .chart-row-container>.bubble.chart-bubble {
     flex: 1;
     min-width: 320px;
     width: calc(50% - 8px);
 }
 
-/* Pastikan header chart tidak terlalu penuh */
 .chart-row-container .chart-header {
     flex-wrap: wrap;
 }
 
-/* Pastikan select/tombol tidak merusak layout */
 .chart-row-container .chart-controls {
     margin-left: 0;
     margin-top: 8px;
 }
 
+/* --- CSS BARU UNTUK LOADER KECIL DI TOMBOL --- */
+.loader-small {
+    border: 3px solid #f3f3f3;
+    /* Light grey */
+    border-top: 3px solid var(--accent-blue);
+    /* Menggunakan accent-blue yang kontras dengan latar belakang abu-abu */
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Penyesuaian ikon tombol unduh agar tidak terlihat berantakan */
+.icon-btn .loader-small {
+    margin: 0;
+}
+
+
 /* --- Responsive Design (Tambahan & Modifikasi) --- */
 @media (max-width: 768px) {
-
-    /* 1. Sidebar (Sembunyikan & Posisikan di Luar Layar) */
     .sidebar {
-        position: fixed;
-        left: -280px;
-        /* Sembunyikan di luar layar */
-        top: 0;
-        bottom: 0;
+        position: initial;
+        width: 45px;
+        min-width: 45px;
         z-index: 1000;
-        transition: left 0.3s ease;
-        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.4);
-        /* Bayangan lebih jelas di mobile */
+        transition: width 0.3s ease;
+        overflow: hidden;
+        border-right: none;
+        background-color: var(--sidebar-bg-mobile);
+        padding: 12px 0 12px 12px;
     }
 
-    /* 2. Kelas untuk menampilkan sidebar (diaktifkan JS) */
-    .sidebar.open {
-        left: 0;
-    }
-
-    /* 3. Tampilkan tombol toggle & atur ulang header */
     .mobile-only {
-        display: inline-flex;
-        /* Tampilkan tombol menu hamburger */
+        display: flex;
+    }
+
+    .sidebar-header>*:not(.mobile-only) {
+        display: none !important;
     }
 
     .sidebar-header {
-        /* Tambahkan wrap agar tombol download bisa pindah baris */
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        gap: 0;
+        margin-bottom: 0;
+        padding-right: 0;
     }
 
-    /* 4. Overlay saat sidebar terbuka */
+    .chat-history {
+        display: none;
+    }
+
+    .sidebar.open {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 260px;
+        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.4);
+        overflow-y: auto;
+        border-right: 1px solid var(--border-color);
+        background-color: var(--sidebar-bg);
+        padding: 12px;
+    }
+
+    .sidebar.open .chat-history {
+        display: block;
+    }
+
+    .sidebar.open .sidebar-header>*:not(.mobile-only) {
+        display: flex !important;
+        width: auto;
+        height: auto;
+        padding: 10px;
+        flex-grow: 1;
+    }
+
+    .sidebar.open .mobile-only {
+        display: none;
+    }
+
+    .main-content {
+        width: calc(100% - 45px);
+    }
+
     #sidebar-overlay {
         position: fixed;
         top: 0;
@@ -690,28 +739,34 @@ html {
         z-index: 999;
     }
 
-    /* 5. Penyesuaian Konten Utama */
-    .main-content {
-        width: 100%;
-    }
-
     #chat-messages {
-        padding: 16px;
-        /* Kurangi padding di HP */
+        padding: 12px;
         gap: 16px;
         max-width: 100%;
     }
 
-    .chat-input-area {
+    .message .bubble {
         padding: 12px;
     }
 
-    #chat-container {
-        padding-bottom: 140px;
-        /* Atur ulang padding container utama */
+    .bubble.chart-bubble {
+        width: 100%;
     }
 
-    /* 6. Chart Berdampingan (tumpuk di HP) */
+    .chart-canvas-container {
+        height: 300px;
+        width: 100%;
+    }
+
+    .download-chart-btn {
+        top: 8px;
+        right: 8px;
+    }
+
+    .message.narrative-message {
+        margin-top: 16px;
+    }
+
     .chart-row-container {
         flex-direction: column;
         gap: 16px;
@@ -719,11 +774,9 @@ html {
 
     .chart-row-container>.bubble.chart-bubble {
         width: 100%;
-        /* Ambil lebar penuh */
         min-width: unset;
     }
 
-    /* 7. Perbaiki Tampilan Empty State */
     #empty-state .logo-title {
         flex-direction: column;
         gap: 8px;
@@ -731,5 +784,12 @@ html {
 
     #empty-state h1 {
         font-size: 1.8rem;
+    }
+}
+
+/* Mempertahankan aturan untuk menyembunyikan tombol mobile di layar desktop */
+@media (min-width: 769px) {
+    .mobile-only {
+        display: none !important;
     }
 }

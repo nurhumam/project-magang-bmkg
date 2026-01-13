@@ -9,8 +9,8 @@ from datetime import datetime
 
 # --- KONFIGURASI PATH ---
 BASE_PATH = 'C:/Users/USER/Documents/Arsip-Magang/BMKG/web-chat/web-informasi-iklim/data'
-PATH_NORMAL_DATA = os.path.join(BASE_PATH, 'data-rata-rata', 'Data-normal.xls') # NAMA FILE BARU
-PATH_LOCATION_GRID = os.path.join(BASE_PATH, 'data-nama-daerah', 'Grid_Kec2024_DATABASE_20251124.xlsx') # FILE BARU
+PATH_NORMAL_DATA = os.path.join(BASE_PATH, 'data-rata-rata', 'Data-normal.xls')
+PATH_LOCATION_GRID = os.path.join(BASE_PATH, 'data-nama-daerah', 'Grid_Kec2024_DATABASE_20251124.xlsx')
 PATH_ANALISIS = os.path.join(BASE_PATH, 'data-analisis')
 PATH_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi')
 PATH_DAS_PREDIKSI = os.path.join(BASE_PATH, 'data-prediksi-das')
@@ -25,9 +25,7 @@ DB_PASSWORD = ''
 # Buat koneksi engine sekali saja
 engine = create_engine(f'mysql+pymysql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}/{DB_DATABASE}')
 
-# --- Fungsi Generik untuk Impor, Tambah Kolom, Update, dan Index ---
-# --- VERSI PERBAIKAN ---
-
+# Fungsi generik untuk impor data, buat & isi kolom spasial, dan index
 def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True, periods_to_delete=None):
     """
     Fungsi untuk insert data, tambah/isi kolom spasial, dan index.
@@ -39,12 +37,10 @@ def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True,
     with engine.connect() as connection:
         with connection.begin() as transaction:
             try:
-                # 1. Hapus data lama (TRUNCATE atau DELETE)
+                # 1. Hapus data lama
                 if is_full_replace:
                     print(f"  - Menghapus data lama ({table_name}: TRUNCATE)...")
                     connection.execute(text(f"TRUNCATE TABLE `{table_name}`"))
-                    # --- PERBAIKAN BUG ---
-                    # Hapus kolom location HANYA jika full replace
                     print(f"  - Menghapus kolom 'location' lama jika ada ({table_name})...")
                     connection.execute(text(f"ALTER TABLE `{table_name}` DROP COLUMN IF EXISTS `location`"))
                 
@@ -54,26 +50,7 @@ def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True,
                     delete_query = text(f"DELETE FROM `{table_name}` WHERE data_period IN :periods")
 
                     connection.execute(delete_query, {'periods': periods_to_delete})
-
-                    # Untuk analisis, kita asumsikan kolom location akan dibuat ulang jika belum ada
-
                     connection.execute(text(f"ALTER TABLE `{table_name}` DROP COLUMN IF EXISTS `location`"))
-                    
-                    # # Tentukan kolom periode berdasarkan tabel
-                    # period_column_name = 'data_period' # Default untuk analysis
-                    # if table_name == 'climate_das_predictions':
-                    #     period_column_name = 'prediction_das_period'
-                    # elif table_name == 'climate_das_probabilities':
-                    #     period_column_name = 'prediction_das_period'
-                    
-                    # # --- PERBAIKAN KESALAHAN NAMA VARIABEL (PENYEBAB ERROR ANDA) ---
-                    # # Menggunakan nama variabel 'period_column_name' yang benar
-                    # delete_query = text(f"DELETE FROM `{table_name}` WHERE {period_column_name} IN :periods")
-                    # connection.execute(delete_query, {'periods': periods_to_delete})
-                    
-                    # # --- PERBAIKAN BUG ---
-                    # # JANGAN drop kolom location di sini
-                
                 else:
                     raise ValueError("Harus TRUNCATE atau menyediakan periods_to_delete.")
 
@@ -81,29 +58,12 @@ def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True,
                 print(f"  - Memasukkan {len(df_insert)} baris data baru ({table_name}, chunksize=100)...")
                 df_insert.to_sql(table_name, con=connection, if_exists='append', index=False, chunksize=100)
 
-                # --- 3. Buat dan Isi Kolom Spasial ---
+                # 3. Buat dan Isi Kolom Spasial
                 print(f"  - Menambahkan kolom 'location' ({table_name})...")
                 connection.execute(text(f"ALTER TABLE `{table_name}` ADD COLUMN IF NOT EXISTS `location` POINT NULL"))
 
                 print(f"  - Mengisi kolom 'location' ({table_name})...")
                 where_clause_update = ""
-                
-                # --- Perbaikan Logika Update Spasial ---
-                # Jika kita delete by period, kita HANYA update baris-baris baru
-                # if not is_full_replace and periods_to_delete:
-                #     # Tentukan kolom periode lagi (untuk blok ini)
-                #     period_column_name_update = 'data_period' # Default
-                #     if table_name == 'climate_das_predictions':
-                #         period_column_name_update = 'prediction_das_period'
-                #     elif table_name == 'climate_das_probabilities':
-                #         period_column_name_update = 'prediction_das_period'
-                        
-                #     periods_str = "','".join(periods_to_delete)
-                #     # --- PERBAIKAN KESALAHAN NAMA VARIABEL ---
-                #     where_clause_update = f"AND {period_column_name_update} IN ('{periods_str}')" 
-                
-                # Jika full replace, update semua (where_clause_update = "")
-                
                 if not is_full_replace and periods_to_delete:
 
                     periods_str = "','".join(periods_to_delete)
@@ -130,7 +90,6 @@ def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True,
                     else:
                         raise modify_err 
 
-
                 # 5. Tambahkan SPATIAL INDEX
                 print(f"  - Menambahkan SPATIAL INDEX pada 'location' ({table_name})...")
                 index_name = f"{table_name}_location_spatialindex"
@@ -144,45 +103,39 @@ def import_table_and_create_spatial(table_name, df_insert, is_full_replace=True,
                 print(f"  - GAGAL ({table_name}): Transaksi dibatalkan. {e}")
                 transaction.rollback()
                 raise
-# --- AKHIR FUNGSI PERBAIKAN ---
 
+# Fungsi untuk menemukan versi Dasarian terbaru yang memiliki file
 def find_latest_das_version_date(path_das_data, file_prefix):
     """
     Mencari tanggal rilis versi prediksi Dasarian terbaru (Senin/Kamis)
     yang benar-benar memiliki file di folder.
     """
     today = datetime.now()
-    days_to_check = [0, 3] # Senin (0) dan Kamis (3)
+    days_to_check = [0, 3]
     
-    # Cari semua file yang ada di direktori
     all_files_in_dir = os.listdir(path_das_data)
     
-    # Iterasi mundur, maksimal 30 hari (sekitar 12 versi rilis)
     for i in range(30): 
         check_date = today - relativedelta(days=i)
         
-        # Hanya cek tanggal rilis yang valid (Senin atau Kamis)
         if check_date.weekday() in days_to_check:
             target_version_str = check_date.strftime('%Y.%m.%d') 
             
-            # Cek apakah ada file untuk versi ini
             version_files = [
                 f for f in all_files_in_dir 
                 if f.startswith(file_prefix) and f.endswith(f"_ver_{target_version_str}.csv")
             ]
             
             if version_files:
-                return check_date # Versi rilis ditemukan!
+                return check_date 
 
     return None
 
+# Fungsi Impor Spesifik Tabel 
 def import_locations():
     print("\n--- Memulai Impor Data Lokasi/Grid (location_grids) ---")
     try:
-        # Asumsi: File .xlsx dibaca, dan sheet/index 0 yang digunakan
         df = pd.read_excel(PATH_LOCATION_GRID) 
-        
-        # Penamaan ulang kolom yang sesuai dengan skema DB baru
         df.rename(columns={
             'NO_GRID': 'no_grid', 'LAT2': 'latitude', 'LON2': 'longitude',
             'nmprov': 'province', 'nmkab': 'regency', 
@@ -195,7 +148,6 @@ def import_locations():
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         original_count = len(df)
-        # Hapus baris tanpa kunci utama (no_grid) atau koordinat
         df.dropna(subset=['no_grid', 'latitude', 'longitude'], inplace=True)
         dropped_count = original_count - len(df)
         if dropped_count > 0:
@@ -209,23 +161,18 @@ def import_locations():
 
         df_insert = df_insert.astype(object).where(pd.notnull(df_insert), None)
         
-        # Panggil fungsi impor generik (TRUNCATE karena ini data dimensi statis)
         import_table_and_create_spatial('location_grids', df_insert, is_full_replace=True)
 
     except Exception as e:
         print(f"GAGAL Impor Data Lokasi: {e}")
 
-
+# Fungsi impor data normal curah hujan
 def import_normals():
     print("\n--- Memulai Impor Data Normal Curah Hujan ---")
-    try:
-        # Asumsi: File .xls dibaca dengan engine 'xlrd' 
+    try: 
         df = pd.read_excel(PATH_NORMAL_DATA, engine='xlrd')
-        
-        # Penamaan ulang kolom yang sesuai dengan skema DB
         df.rename(columns={
-            # Jika kolom 'urutan' ada di file sumber, pertahankan, jika tidak, biarkan MySQL mengisi AUTO_INCREMENT
-            # 'URUTAN': 'urutan', 
+
             'NO_GRID': 'no_grid', 'LON': 'longitude', 'LAT': 'latitude',
             'JAN': 'jan', 'FEB': 'feb', 'MAR': 'mar', 'APR': 'apr', 'MAY': 'may', 'JUN': 'jun',
             'JUL': 'jul', 'AUG': 'aug', 'SEP': 'sep', 'OCT': 'oct', 'NOV': 'nov', 'DEC': 'dec'
@@ -238,23 +185,19 @@ def import_normals():
         
         all_numeric_cols = cols_to_round + ['no_grid']
         if 'urutan' in df.columns:
-             all_numeric_cols.append('urutan')
+            all_numeric_cols.append('urutan')
 
         for col in all_numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         original_count = len(df)
-        # Hapus baris tanpa kunci utama (no_grid) atau koordinat
         df.dropna(subset=['no_grid', 'latitude', 'longitude'], inplace=True)
         dropped_count = original_count - len(df)
         if dropped_count > 0:
             print(f" INFO: Dihapus {dropped_count} baris karena no_grid/koordinat kosong.")
 
-        # Rounding data, 5 untuk koordinat, 2 untuk CH
         df[cols_to_round] = df[cols_to_round].round(5) 
-        
-        # Tentukan kolom yang akan di-insert
         db_columns = [
             'urutan', 'no_grid', 'longitude', 'latitude', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 
             'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
@@ -264,54 +207,37 @@ def import_normals():
 
         df_insert = df_insert.astype(object).where(pd.notnull(df_insert), None)
         
-        # *** GANTI BLOK INI DENGAN PEMANGGILAN import_table_and_create_spatial ***
-        
-        # Gunakan import_table_and_create_spatial. 
-        # Kita perlu menghapus kolom 'location' secara manual karena import_table_and_create_spatial
-        # hanya menghapus 'location' jika is_full_replace=True.
         with engine.connect() as connection:
             connection.execute(text(f"TRUNCATE TABLE `climate_normals`"))
             connection.execute(text(f"ALTER TABLE `climate_normals` DROP COLUMN IF EXISTS `location`"))
         
         import_table_and_create_spatial('climate_normals', df_insert, is_full_replace=True)
-        # Catatan: Fungsi import_table_and_create_spatial akan secara otomatis 
-        # membuat, mengisi, dan mengindex kolom 'location'
-
     except Exception as e:
         print(f"GAGAL Impor Data Normal: {e}")
 
+# Fungsi impor data analisis
 def import_analyses():
     print("\n--- Memulai Impor Data Analisis ---")
     try:
         today = datetime.now()
-        
-        # 1. Tentukan 3 periode YYYYMM target (Bulan lalu, 2 bulan lalu, 3 bulan lalu)
-        # Jika sekarang November (bulan 11), target idealnya: Okt (10), Sep (09), Ags (08)
         ideal_target_dates = []
         for i in range(1, 4):
             target_date = today - relativedelta(months=i)
             ideal_target_dates.append(target_date.strftime('%Y%m'))
         
-        # ideal_target_dates sekarang berisi [bulan_lalu, 2_bulan_lalu, 3_bulan_lalu]
-        # Contoh: [202510, 202509, 202508] (diurutkan mundur)
         print(f"INFO: Periode ideal 3 bulan terakhir: {ideal_target_dates}")
 
-        # 2. Cari semua file yang ada di direktori
         all_files_in_dir = os.listdir(PATH_ANALISIS)
         
-        # 3. Kumpulkan semua file yang mengandung periode bulan apa pun di dalamnya
-        available_period_files = {} # {YYYYMM: filename}
+        available_period_files = {}
         for file_name in all_files_in_dir:
             match = re.search(r'(\d{6})', file_name)
             if match:
                 period_ym = match.group(1)
                 available_period_files[period_ym] = file_name
-        
-        # 4. Urutkan semua periode yang tersedia dari yang terbaru ke terlama
-        # Menggunakan kunci string YYYYMM untuk pengurutan yang benar
+                
         sorted_available_periods = sorted(available_period_files.keys(), reverse=True)
         
-        # 5. Ambil 3 periode TERBARU yang benar-benar ADA di folder
         periods_to_process = sorted_available_periods[:3]
         
         if not periods_to_process:
@@ -325,7 +251,6 @@ def import_analyses():
         all_data = []
         periods_to_update_db = []
         
-        # Lanjutkan loop pemrosesan file
         for file_name in files_to_process:
             match = re.search(r'(\d{6})', file_name)
             if not match: continue
@@ -334,11 +259,7 @@ def import_analyses():
             period = f"{date_str[:4]}-{date_str[4:]}"
             periods_to_update_db.append(period)
 
-            # ... (Sisa kode pembacaan file sama seperti sebelumnya) ...
             file_path = os.path.join(PATH_ANALISIS, file_name)
-            # Perhatikan: engine='xlrd' hanya diperlukan untuk file .xls, 
-            # jika file Anda .xlsx atau .csv, mungkin perlu disesuaikan. 
-            # Saya asumsikan file analisis Anda berformat Excel.
             df = pd.read_excel(file_path, engine='xlrd') 
             df.rename(columns={'LON': 'longitude', 'LAT': 'latitude', 'CH': 'ch'}, inplace=True)
 
@@ -375,30 +296,26 @@ def import_analyses():
         df_insert = df_insert.astype(object).where(pd.notnull(df_insert), None)
         unique_periods = list(set(periods_to_update_db))
         
-        # Catatan: Perlu dipastikan di sini bahwa get_period_column('climate_analyses') 
-        # mengembalikan 'data_period' jika Anda menggunakan perbaikan Bug 3
         import_table_and_create_spatial('climate_analyses', df_insert, is_full_replace=False, periods_to_delete=unique_periods)
 
     except Exception as e:
         print(f"GAGAL Impor Analisis: {e}")
 
+# Fungsi impor data prediksi bulanan
 def import_predictions():
     print("\n--- Memulai Impor Data Prediksi Bulanan ---")
     try:
         today = datetime.now()
         
-        # Cari semua file prediksi yang ada
         all_files = [f for f in os.listdir(PATH_PREDIKSI) if f.startswith('pch_ensMean') and f.endswith('.csv')]
         
         if not all_files:
             print("INFO: Tidak ada file prediksi bulanan yang ditemukan.")
             return
 
-        # 1. Kumpulkan semua versi unik (YYYY.MM.DD) yang tersedia
-        available_versions = {} # {YYYY.MM.DD: [list_of_filenames]}
+        available_versions = {} 
         
         for file_name in all_files:
-            # Match versi: _ver_(\d{4})\.(\d{2})\.(\d{2})
             match = re.search(r'_ver_(\d{4})\.(\d{2})\.(\d{2})', file_name)
             if match:
                 version_str = f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
@@ -410,32 +327,23 @@ def import_predictions():
             print("SELESAI: File prediksi ditemukan, tetapi tidak ada versi yang valid.")
             return
 
-        # 2. Urutkan versi secara terbalik (terbaru dahulu)
-        # Versi adalah string YYYY.MM.DD, pengurutan string akan berfungsi
         sorted_versions = sorted(available_versions.keys(), reverse=True)
         
-        # 3. Temukan VERSI TERBARU yang akan digunakan
         latest_version_str = sorted_versions[0]
         files_to_process = available_versions[latest_version_str]
         target_version_db = latest_version_str.replace('.', '-')
         
         print(f"INFO: Versi prediksi bulanan TERBARU yang tersedia adalah: {target_version_db}")
-        
-        # 4. Filter file untuk memastikan hanya 6 periode prediksi ke depan yang diambil
-        
-        # Kumpulkan semua periode prediksi (YYYY-MM) dari file dalam versi terbaru
-        period_data = {} # {period_db_format: file_name}
+
+        period_data = {} 
         for file_name in files_to_process:
-            # Match periode prediksi: (\d{4})\.(\d{2})
             match = re.search(r'pch_ensMean\.(\d{4})\.(\d{2})_', file_name)
             if match:
                 period_db = f"{match.group(1)}-{match.group(2)}"
                 period_data[period_db] = file_name
                 
-        # Urutkan periode prediksi dari yang terlama ke yang terbaru
         sorted_periods = sorted(period_data.keys())
         
-        # Ambil 6 periode pertama yang tersedia
         periods_to_process_db = sorted_periods[:6]
         
         if len(periods_to_process_db) < 6:
@@ -449,7 +357,6 @@ def import_predictions():
             
             print(f"PROSES: Mempersiapkan file '{file_name}' (Periode: {period})...")
 
-            # --- Mulai Proses Pembacaan Data ---
             df = pd.read_csv(file_path, skiprows=1, header=None, names=['NOGRID', 'LON', 'LAT', 'VAL', 'MIN', 'MAX'])
             df.rename(columns={'NOGRID': 'no_grid', 'LON': 'longitude', 'LAT': 'latitude', 'VAL': 'val'}, inplace=True)
 
@@ -482,7 +389,6 @@ def import_predictions():
         kolom_insert = [col for col in final_df.columns if col in db_columns]
         df_insert = final_df[kolom_insert].copy()
 
-        # ... (Penanganan tipe data dan impor sama seperti sebelumnya) ...
         if 'latitude' in df_insert.columns:
             df_insert['latitude'] = df_insert['latitude'].astype(float)
         if 'longitude' in df_insert.columns:
@@ -490,12 +396,12 @@ def import_predictions():
 
         df_insert = df_insert.astype(object).where(pd.notnull(df_insert), None)
         
-        # Gunakan Full Replace untuk prediksi bulanan
         import_table_and_create_spatial('climate_predictions', df_insert, is_full_replace=True)
 
     except Exception as e:
         print(f"GAGAL Impor Prediksi Bulanan: {e}")
 
+# Fungsi impor data prediksi dasarian
 def import_das_predictions():
     print("\n--- Memulai Impor Data Prediksi Dasarian ---")
     try:
@@ -510,13 +416,9 @@ def import_das_predictions():
 
         print(f"INFO: Menggunakan versi prediksi dasarian terbaru yang ditemukan: {target_version_db}")
 
-        # Cari semua file untuk versi yang ditemukan
         files = [f for f in os.listdir(PATH_DAS_PREDIKSI) if f.startswith('pch_det') and f.endswith(f"_ver_{target_version_str}.csv")]
         
-        # ... (Sisa logika pengumpulan data, concat, dan import_table_and_create_spatial tetap sama)
-        
         if not files:
-            # Seharusnya tidak terjadi karena find_latest_das_version_date sudah memastikan keberadaan file
             print(f"SELESAI: File versi {target_version_str} hilang setelah pengecekan awal.")
             return
 
@@ -571,10 +473,10 @@ def import_das_predictions():
     except Exception as e:
         print(f"GAGAL Impor Prediksi Dasarian: {e}")
 
+# Fungsi impor data peluang dasarian
 def import_das_probabilities():
     print("\n--- Memulai Impor Data Peluang Dasarian ---")
     try:
-        # Panggil fungsi helper baru untuk mencari versi yang tersedia
         target_version_date_obj = find_latest_das_version_date(PATH_DAS_PROBABILITAS, 'pch_prob')
         
         if not target_version_date_obj:
@@ -586,11 +488,8 @@ def import_das_probabilities():
 
         print(f"INFO (Peluang): Menggunakan versi peluang dasarian terbaru yang ditemukan: {target_version_db}")
 
-        # Cari semua file untuk versi yang ditemukan
         files = [f for f in os.listdir(PATH_DAS_PROBABILITAS) if f.startswith('pch_prob') and f.endswith(f"_ver_{target_version_str}.csv")]
         
-        # ... (Sisa logika pengumpulan data, concat, dan import_table_and_create_spatial tetap sama)
-
         if not files:
             print(f"SELESAI (Peluang): File versi {target_version_str} hilang setelah pengecekan awal.")
             return
@@ -657,7 +556,7 @@ def import_das_probabilities():
     except Exception as e:
         print(f"GAGAL Impor Peluang Dasarian: {e}")
         
-
+# Main Execution
 if __name__ == '__main__':
     args = sys.argv[1:]
     

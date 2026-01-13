@@ -1,4 +1,3 @@
-{{-- File ini berisi SEMUA versi narasi Normal --}}
 @php
     $namaLokasi = "<strong>" . e($locationName) . "</strong>";
     $valMaxRain = "<strong>" . e($maxRain) . " mm/bulan</strong>";
@@ -29,7 +28,7 @@
 @switch($templateId)
 
     @case(1)
-        {{-- Versi 1 (Asli dengan logika @if, Disesuaikan) --}}
+        {{-- Versi 1 --}}
         Analisis pola curah hujan bulanan di Kecamatan {!! $namaLokasi !!} menunjukkan variasi yang jelas.
         @if($listTinggi)
             Curah hujan kategori <strong>tinggi (>300 mm/bulan)</strong> umumnya terjadi pada bulan {!! $listTinggi !!}.
@@ -52,7 +51,7 @@
         @break
 
     @case(2)
-        {{-- Versi 2 (Dari Anda, disesuaikan) --}}
+        {{-- Versi 2 --}}
         Pada grafik ini ditampilkan variasi curah hujan bulanan di wilayah {!! $namaLokasi !!}. Bulan {!! $valPeakMonth !!} menunjukkan curah hujan tertinggi, mencapai {!! $valMaxRain !!}, sedangkan bulan {!! $valTroughMonth !!} mencatat curah hujan terendah, sekitar {!! $valMinRain !!}.
         
         @if($listTinggi)
@@ -67,7 +66,7 @@
         @break
 
     @case(3)
-        {{-- Versi 3 (Dari Anda, disesuaikan) --}}
+        {{-- Versi 3 --}}
         Grafik berikut memperlihatkan kondisi rata-rata curah hujan bulanan di Kecamatan {!! $namaLokasi !!}.
         
         @if($listTinggi)
@@ -84,7 +83,7 @@
         @break
 
     @case(4)
-        {{-- Versi 4 (Dari Anda, disesuaikan) --}}
+        {{-- Versi 4 --}}
         Grafik ini menunjukkan pola curah hujan di Kecamatan {!! $namaLokasi !!}. 
         
         @if($listTinggi && $listRendah)
@@ -97,12 +96,12 @@
         
         Puncak curah hujan tercatat di bulan {!! $valPeakMonth !!} dengan intensitas sebesar {!! $valMaxRain !!}, dan curah hujan terendah pada bulan {!! $valTroughMonth !!} sebesar {!! $valMinRain !!}.
         @if($listKemarau)
-            Umumnya, periode kering berlangsung pada bulan {!! $listKemarau !!}.
+            Umumnya, periode kemarau berlangsung pada bulan {!! $listKemarau !!}.
         @endif
         @break
 
     @default
-        {{-- Versi 5 (Default/Case 5 - Dari Anda, disesuaikan) --}}
+        {{-- Versi 5 --}}
         Grafik ini menunjukkan rata-rata distribusi hujan bulanan di wilayah {!! $namaLokasi !!}. Bulan {!! $valPeakMonth !!} menjadi puncak dengan curah hujan sebesar {!! $valMaxRain !!}, sedangkan bulan {!! $valTroughMonth !!} menunjukkan nilai curah hujan terendah yaitu sekitar {!! $valMinRain !!}.
         
         @if($listTinggi)

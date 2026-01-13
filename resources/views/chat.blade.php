@@ -29,10 +29,11 @@
                     </svg>
                     <span>Obrolan Baru</span>
                 </a>
-                <button id="download-data-btn" class="icon-btn" title="Unduh Data Mentah (CSV/XLSX)" disabled> <svg
-                        width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12 3V15M12 15L8 11M12 15L16 11M3 19H21" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round" />
+                <button id="download-data-btn" class="icon-btn" title="Unduh Data Mentah (CSV/XLSX)" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path
+                            d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15M17 8L12 13M12 13L7 8M12 13V3"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
                 </button>
                 <button id="download-chat-btn" class="icon-btn" title="Unduh Obrolan Ini (PDF)">
@@ -70,8 +71,8 @@
                         <img src="{{ asset('images/logo-bmkg.png') }}" alt="BMKG Logo"
                             style="width:220px; height:220px;">
                         <div>
-                            <h1 style="color: black;">Visualisasi Data Iklim</h1>
-                            <h1 style="color: black; font-size: 35px;">Level Kecamatan</h1>
+                            <h1 style="color: black; font-size: 50px;">MAKSIMA</h1>
+                            <h1 style="color: black; font-size: 30px;">Media untuk AKses informaSi Iklim kecaMAtan</h1>
                             <p class="welcome-text">Silahkan tanya iklim mana saja</p>
                         </div>
                     </div>
@@ -127,17 +128,17 @@
         function formatMonthYearLabel(yyyymm) {
             try {
                 const parts = yyyymm.split('-');
-                if (parts.length !== 2) return yyyymm; // Fallback jika format salah
+                if (parts.length !== 2) return yyyymm;
                 const year = parts[0];
-                const monthIndex = parseInt(parts[1], 10) - 1; // (0-11)
+                const monthIndex = parseInt(parts[1], 10) - 1;
 
                 const monthName = monthNames[monthIndex];
-                if (!monthName) return yyyymm; // Fallback jika index salah
+                if (!monthName) return yyyymm;
 
                 return `${monthName} ${year}`;
             } catch (e) {
                 console.error("Gagal format label:", e, yyyymm);
-                return yyyymm; // Fallback jika ada error
+                return yyyymm;
             }
         }
 
@@ -149,9 +150,10 @@
         };
 
         const autocompleteResults = document.getElementById('autocomplete-results');
-        let debounceTimer; // Untuk timer debounce
+        let debounceTimer;
         const coordinateRegex = /^\(?\s*([-]?\d{1,3}(?:\.\d+)?)\s*,\s*([-]?\d{1,3}(?:\.\d+)?)\s*\)?$/;
 
+        // Plugin untuk menambahkan logo BMKG pada grafik
         const bmkgLogoPlugin = {
             id: 'bmkgLogoPlugin',
             afterDraw: (chart, args, options) => {
@@ -173,6 +175,7 @@
 
         Chart.register(bmkgLogoPlugin);
 
+        // Fungsi untuk mereset tampilan chat
         function resetChatView() {
             for (const chartId in chartInstances) {
                 if (chartInstances[chartId]) {
@@ -187,14 +190,17 @@
             updateDownloadButtonState();
         }
 
+        // Fungsi untuk menyimpan riwayat chat ke localStorage
         function saveHistory() {
             localStorage.setItem('bmkgChatHistory', JSON.stringify(chatHistory));
         }
 
+        // Fungsi untuk merender sidebar riwayat chat
         function renderHistorySidebar() {
             historyList.innerHTML = chatHistory.length === 0 ? '<li class="empty-history">Belum ada riwayat.</li>' : chatHistory.map(session => `<li><a href="#" data-session-id="${session.id}">${session.title}</a><button class="delete-history-btn" data-session-id="${session.id}" title="Hapus Obrolan"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></li>`).join('');
         }
 
+        // Fungsi untuk memuat riwayat chat dari localStorage
         function loadHistory() {
             const savedHistory = localStorage.getItem('bmkgChatHistory');
             if (savedHistory) chatHistory = JSON.parse(savedHistory);
@@ -202,6 +208,7 @@
             updateDownloadButtonState();
         }
 
+        // Fungsi untuk merender sesi chat
         function renderSession(session) {
             resetChatView();
             emptyState.style.display = 'none';
@@ -219,14 +226,11 @@
 
                     // --- 1. MODIFIKASI RENDER SESSION ---
                 } else if (msg.type === 'chart_das_pair') {
-                    // Panggil fungsi row baru
                     addDasChartRow(msg.predPayload, msg.probPayload, false, msg.chartIdPred, msg.chartIdProb);
 
                 } else if (msg.type === 'chart_das_prediction') {
-                    // Fallback jika hanya ada prediction
                     addDasPredictionChart(msg.payload, false, msg.chartId);
                 } else if (msg.type === 'chart_das_probability') {
-                    // Fallback jika hanya ada probability
                     addDasProbabilityChart(msg.payload, false, msg.chartId);
 
                 } else if (msg.type === 'chart_prediction') {
@@ -236,12 +240,14 @@
             updateDownloadButtonState();
         }
 
+        // Fungsi untuk memperbarui status tombol unduh
         function updateDownloadButtonState() {
             const isReady = currentSession && currentSession.messages.length > 0;
             downloadChatBtn.disabled = !isReady;
             downloadDataBtn.disabled = !isReady || !currentSession.title;
         }
 
+        // Fungsi untuk menambahkan pesan ke chat
         function addMessage(text, sender = 'bot', save = true) {
             if (save && currentSession) currentSession.messages.push({
                 type: 'message',
@@ -257,6 +263,7 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        // Fungsi untuk menambahkan pesan dengan HTML terformat
         function addFormattedMessage(htmlContent) {
             emptyState.style.display = 'none';
             chatMessages.style.display = 'flex';
@@ -267,6 +274,7 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        // Fungsi untuk menambahkan narasi ke chat
         function addNarrative(html, save = true) {
             if (save && currentSession) currentSession.messages.push({
                 type: 'narrative',
@@ -278,6 +286,7 @@
             chatMessages.appendChild(narrativeWrapper);
         }
 
+        // Fungsi untuk menambahkan judul seksi ke chat
         function addSectionTitle(text, save = true) {
             if (save && currentSession) currentSession.messages.push({
                 type: 'title',
@@ -286,11 +295,8 @@
             addFormattedMessage(`<h4 style="margin-bottom: -10px;"><b>${text}</b></h4>`);
         }
 
-        // --- 2. FUNGSI HELPER BARU ---
-        // Fungsi ini HANYA mengembalikan HTML string untuk bubble, 
-        // tidak membungkusnya di `div.message.bot`
+        // FUNGSI PEMBANTU createChartBubbleHTML
         function createChartBubbleHTML(chartId, title, controlsHTML) {
-            // Jika controlsHTML tidak disediakan, buat placeholder kosong
             const controlsPlaceholder = controlsHTML || `<div class="chart-controls" id="controls-${chartId}"></div>`;
 
             return `<div class="bubble chart-bubble">
@@ -298,7 +304,7 @@
                             <h3>${title}</h3>
                             ${controlsPlaceholder}
                         </div>
-                        <div class="chart-canvas-container" style="height: 500px;">
+                        <div class="chart-canvas-container" style="height: 400px;">
                             <canvas id="${chartId}"></canvas>
                         </div>
                         <button class="download-chart-btn" data-chart-id="${chartId}" title="Unduh Grafik">
@@ -311,14 +317,11 @@
                     </div>`;
         }
 
-        // --- 3. FUNGSI createChartBubble (DIMODIFIKASI) ---
-        // Fungsi ini sekarang menggunakan helper baru dan membungkusnya
+        // Fungsi untuk membuat bubble chart dan menambahkannya ke chat
         function createChartBubble(chartId, title) {
             const chartWrapper = document.createElement('div');
-            // Ini adalah bubble standar (satu per baris)
             chartWrapper.className = 'message bot';
 
-            // Buat HTML bubble menggunakan helper (tanpa kontrol custom)
             const bubbleHTML = createChartBubbleHTML(chartId, title, '');
             chartWrapper.innerHTML = bubbleHTML;
 
@@ -326,10 +329,10 @@
             return document.getElementById(chartId);
         }
 
-
+        // Fungsi untuk menambahkan chart normal ke chat
         function addNormalChart(payload, locationName, save = true, existingChartId = null) {
             const chartId = existingChartId || `chart-norm-${Date.now()}`;
-            const title = `Data Rata-Rata Curah Hujan (1991-2020)`;
+            const title = `Data Rata-Rata Curah Hujan (1991-2020)-${locationName}`;
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_normal',
                 payload,
@@ -358,10 +361,10 @@
                 type: 'line',
                 data: {
                     labels: ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGS', 'SEP', 'OKT', 'NOV', 'DES', 'JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGS', 'SEP', 'OKT', 'NOV', 'DES'],
-                    pointRadius: 5,
                     datasets: [{
                         label: 'Curah Hujan (mm)',
                         data: initialView.data,
+                        pointRadius: 4,
                         pointBorderColor: d => (d.parsed.y < threshold) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)',
                         pointBackgroundColor: d => (d.parsed.y < threshold) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)',
                         fill: true,
@@ -387,7 +390,7 @@
                         borderColor: 'rgba(35, 129, 41, 1)',
                         pointBorderColor: 'rgba(35, 129, 41, 1)',
                         borderWidth: 1,
-                        pointRadius: 2,
+                        pointRadius: 3,
                         fill: false,
                         borderDash: [5, 5]
                     },
@@ -397,7 +400,7 @@
                         borderColor: 'rgba(168, 91, 1, 1)',
                         pointBorderColor: 'rgba(168, 91, 1, 1)',
                         borderWidth: 1,
-                        pointRadius: 2,
+                        pointRadius: 3,
                         fill: false,
                         borderDash: [5, 5]
                     }
@@ -476,6 +479,7 @@
                 }
             });
 
+            // Menambahkan kontrol untuk mengganti tampilan 12 bulan / 24 bulan
             const controlsContainer = document.getElementById(`controls-${chartId}`);
             if (controlsContainer) {
                 controlsContainer.innerHTML = `
@@ -500,9 +504,10 @@
             }
         }
 
+        // Fungsi untuk menambahkan chart analisis ke chat
         function addAnalysisChart(payload, save = true, existingChartId = null) {
             const chartId = existingChartId || `chart-analysis-${Date.now()}`;
-            const title = `Data Analisis Curah Hujan (${payload.labels.length} Bulan Terakhir)`;
+            const title = `Data Analisis Curah Hujan (${payload.labels.length} Bulan Terakhir)-`;
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_analysis',
                 payload,
@@ -550,7 +555,6 @@
                             pointBorderWidth: 2,
                             borderDash: [5, 5],
                             borderColor: 'rgba(35, 129, 41, 1)',
-                            pointBackgroundColor: 'rgba(11, 131, 13, 0.8)',
                             pointBorderColor: 'rgba(11, 131, 13, 0.8)',
                         },
                         {
@@ -560,7 +564,6 @@
                             pointBorderWidth: 2,
                             borderDash: [5, 5],
                             borderColor: 'rgba(168, 91, 1, 1)',
-                            pointBackgroundColor: 'rgba(151, 70, 12, 0.8)',
                             pointBorderColor: 'rgba(151, 70, 12, 0.8)',
                         }
                     ]
@@ -630,9 +633,10 @@
             });
         }
 
+        // fungsi untuk menambahkan chart prediksi dasarian ke chat
         function addDasPredictionChart(payload, save = true, existingChartId = null) {
             const chartId = existingChartId || `chart-das-pred-${Date.now()}`;
-            const title = `Data Prediksi Curah Hujan Dasarian`; // Judul dipersingkat
+            const title = `Data Prediksi Curah Hujan Dasarian-${payload.location_name}`;
 
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_das_prediction',
@@ -761,9 +765,10 @@
             });
         }
 
+        // fungsi untuk menambahkan chart peluang dasarian ke chat
         function addDasProbabilityChart(payload, save = true, existingChartId = null) {
             const chartId = existingChartId || `chart-das-prob-${Date.now()}`;
-            const title = `Data Prediksi Peluang Curah Hujan Lebih Dari Threshold`;
+            const title = `Data Prediksi Peluang Curah Hujan Lebih Dari Threshold-${payload.location_name}`;
 
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_das_probability',
@@ -772,7 +777,6 @@
                 title
             });
 
-            // Gunakan createChartBubble standar (satu per baris)
             const canvas = createChartBubble(chartId, title);
 
             const options = [
@@ -849,19 +853,19 @@
             }
         }
 
-        // --- 4. FUNGSI BARU UNTUK MENAMPILKAN KEDUA GRAFIK DASARIAN ---
+        // fungsi untuk menambahkan baris berisi dua chart dasarian ke chat
         function addDasChartRow(predPayload, probPayload, save = true, chartIdPred = null, chartIdProb = null) {
 
             // Buat ID unik untuk kedua chart
             const predChartId = chartIdPred || `chart-das-pred-${Date.now()}`;
             const probChartId = chartIdProb || `chart-das-prob-${Date.now()}`;
-            const downloadTitle = `Data Prediksi dan Peluang Curah Hujan Dasarian`;
-            const predTitle = `Data Prediksi Curah Hujan Dasarian`;
-            const probTitle = `Data Prediksi Peluang Curah Hujan Dasarian`;
+            const downloadTitle = `Data Prediksi dan Peluang Curah Hujan Dasarian-`;
+            const predTitle = `Data Prediksi Curah Hujan Dasarian-`;
+            const probTitle = `Data Prediksi Peluang Curah Hujan Dasarian-`;
 
             // Simpan ke history sebagai satu 'message'
             if (save && currentSession) currentSession.messages.push({
-                type: 'chart_das_pair', // Tipe baru
+                type: 'chart_das_pair',
                 predPayload: predPayload,
                 probPayload: probPayload,
                 chartIdPred: predChartId,
@@ -871,11 +875,9 @@
                 probTitle: probTitle
             });
 
-            // Buat wrapper baris baru
             const chartRowWrapper = document.createElement('div');
             chartRowWrapper.className = 'message bot chart-row-container';
 
-            // --- Buat HTML untuk Chart Peluang (termasuk dropdown) ---
             const probOptions = [
                 { value: 'a300', text: 'Peluang > 300 mm' },
                 { value: 'a200', text: 'Peluang > 200 mm' },
@@ -894,39 +896,70 @@
                 probDropdownHTML += `<option value="${opt.value}" ${opt.value === probInitialSelectedValue ? 'selected' : ''}>${opt.text}</option>`;
             });
             probDropdownHTML += '</select></div>';
-            // --- Selesai HTML dropdown ---
 
-            // Buat HTML untuk kedua bubble
             const predBubbleHTML = createChartBubbleHTML(predChartId, predTitle, '');
             const probBubbleHTML = createChartBubbleHTML(probChartId, probTitle, probDropdownHTML);
 
-            // Gabungkan HTML dan masukkan ke chat
             chartRowWrapper.innerHTML = predBubbleHTML + probBubbleHTML;
             chatMessages.appendChild(chartRowWrapper);
 
-            // --- Inisialisasi Chart 1: Prediksi (Copy dari addDasPredictionChart) ---
+            // --- Inisialisasi Chart 1: Prediksi ---
             const predCanvas = document.getElementById(predChartId);
             if (predCanvas) {
                 const colorAbove = 'rgba(35, 129, 41, 1)';
                 const colorNormal = 'rgba(254, 255, 0, 1)';
                 const colorBelow = 'rgba(168, 91, 1, 1)';
+
                 const getPointColor = (context) => {
                     const index = context.dataIndex;
                     const value = predPayload.data[index];
-                    if (value === undefined) return 'rgba(0,0,0,0.1)';
                     const upperBound = predPayload.upper_bounds[index];
                     const lowerBound = predPayload.lower_bounds[index];
+
+                    if (value === undefined || upperBound === null || lowerBound === null) return 'rgba(0,0,0,0.1)';
+
                     if (value > upperBound) return colorAbove;
                     else if (value < lowerBound) return colorBelow;
                     else return colorNormal;
                 };
+
                 chartInstances[predChartId] = new Chart(predCanvas.getContext('2d'), {
                     type: 'line',
                     data: {
-                        labels: predPayload.labels, datasets: [
-                            { label: 'Curah Hujan (mm)', data: predPayload.data, fill: false, borderColor: 'rgba(54, 162, 235, 1)', tension: 0.1, pointRadius: 6, pointBorderWidth: 2, pointBackgroundColor: getPointColor, pointBorderColor: getPointColor, order: 1 },
-                            { label: 'Batas Atas Normal', data: predPayload.upper_bounds, borderColor: 'rgba(40, 167, 69, 0.7)', borderWidth: 2, borderDash: [5, 5], pointRadius: 0, fill: false, order: 2 },
-                            { label: 'Batas Bawah Normal', data: predPayload.lower_bounds, borderColor: 'rgba(139, 69, 19, 0.7)', borderWidth: 2, borderDash: [5, 5], pointRadius: 0, fill: false, order: 3 }
+                        labels: predPayload.labels,
+                        datasets: [
+                            {
+                                label: 'Curah Hujan (mm)',
+                                data: predPayload.data,
+                                fill: false,
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                tension: 0.1,
+                                pointRadius: 6,
+                                pointBorderWidth: 2,
+                                pointBackgroundColor: getPointColor, // Menggunakan logika dinamis
+                                pointBorderColor: getPointColor,     // Menggunakan logika dinamis
+                                order: 1
+                            },
+                            {
+                                label: 'Batas Atas Normal',
+                                data: predPayload.upper_bounds,
+                                borderColor: 'rgba(40, 167, 69, 0.7)',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                pointRadius: 4,
+                                fill: false,
+                                order: 2
+                            },
+                            {
+                                label: 'Batas Bawah Normal',
+                                data: predPayload.lower_bounds,
+                                borderColor: 'rgba(139, 69, 19, 0.7)',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                pointRadius: 4,
+                                fill: false,
+                                order: 3
+                            }
                         ]
                     },
                     options: {
@@ -985,28 +1018,22 @@
                 if (dropdown) {
                     dropdown.addEventListener('change', (e) => {
                         e.stopPropagation();
-                        const newSelectedValue = e.target.value; // misal: 'a50'
-                        const newSelectedText = e.target.options[e.target.selectedIndex].text; // misal: 'Peluang > 50 mm'
+                        const newSelectedValue = e.target.value;
+                        const newSelectedText = e.target.options[e.target.selectedIndex].text;
 
-                        // 1. Update Grafik (Ini sudah ada)
                         chart.data.datasets[0].data = probPayload[newSelectedValue];
                         chart.data.datasets[0].label = newSelectedText;
                         chart.update();
 
-                        // 2. LOGIKA BARU: Update Narasi
                         try {
-                            // Cari baris grafik tempat chart ini berada
                             const chartRow = probCanvas.closest('.chart-row-container');
-                            // Cari bubble narasi (yang seharusnya persis setelah baris grafik)
                             const narrativeMessage = chartRow.nextElementSibling;
 
                             if (narrativeMessage && narrativeMessage.classList.contains('narrative-message')) {
-                                // Temukan span spesifik di dalam bubble narasi tersebut
                                 const thresholdSpan = narrativeMessage.querySelector('.prob-threshold');
                                 const detailsSpan = narrativeMessage.querySelector('.prob-details');
 
                                 if (thresholdSpan && detailsSpan) {
-                                    // Buat ulang teks deskripsi threshold
                                     const textMap = {
                                         'a300': 'lebih dari 300 mm', 'a200': 'lebih dari 200 mm',
                                         'a150': 'lebih dari 150 mm', 'a100': 'lebih dari 100 mm',
@@ -1016,7 +1043,6 @@
                                     };
                                     const narrativeThresholdText = textMap[newSelectedValue] || "batas tersebut";
 
-                                    // Buat ulang string detail (seperti di PHP)
                                     const probLabels = probPayload.labels;
                                     const probData = probPayload[newSelectedValue];
                                     let detailsParts = [];
@@ -1034,7 +1060,6 @@
                                         listDetailsProb = detailsParts.join(', ') + ", serta " + last;
                                     }
 
-                                    // Update HTML narasi
                                     thresholdSpan.innerHTML = narrativeThresholdText;
                                     detailsSpan.innerHTML = listDetailsProb;
                                 }
@@ -1047,9 +1072,10 @@
             }
         }
 
+        // Fungsi untuk menambahkan chart prediksi ke chat
         function addPredictionChart(payload, save = true, existingChartId = null) {
             const chartId = existingChartId || `chart-pred-${Date.now()}`;
-            const title = `Data Prediksi Curah Hujan (${payload.labels.length} Bulan ke Depan)`;
+            const title = `Data Prediksi Curah Hujan (${payload.labels.length} Bulan ke Depan)-`;
             if (save && currentSession) currentSession.messages.push({
                 type: 'chart_prediction',
                 payload,
@@ -1098,7 +1124,7 @@
                         borderColor: 'rgba(35, 129, 41, 1)',
                         borderWidth: 2,
                         borderDash: [5, 5],
-                        pointRadius: 0,
+                        pointRadius: 4,
                         fill: false,
                         order: 2
                     },
@@ -1108,7 +1134,7 @@
                         borderColor: 'rgba(168, 91, 1, 1)',
                         borderWidth: 2,
                         borderDash: [5, 5],
-                        pointRadius: 0,
+                        pointRadius: 4,
                         fill: false,
                         order: 3
                     }]
@@ -1177,6 +1203,7 @@
             });
         }
 
+        // Fungsi debounce untuk mengurangi frekuensi pemanggilan fungsi
         function debounce(func, delay = 100) {
             return function (...args) {
                 clearTimeout(debounceTimer);
@@ -1186,6 +1213,7 @@
             };
         }
 
+        // Fungsi untuk fetch data autocomplete
         async function fetchAutocomplete() {
             const query = chatInput.value.trim();
             if (coordinateRegex.test(query)) {
@@ -1202,6 +1230,7 @@
             }
         }
 
+        // Fungsi untuk render hasil autocomplete
         function renderAutocomplete(results) {
             autocompleteResults.innerHTML = '';
             if (results.length === 0) {
@@ -1224,10 +1253,10 @@
 
         chatInput.addEventListener('keyup', debounce(fetchAutocomplete, 300));
 
+        // Toggle sidebar untuk tampilan mobile
         if (toggleSidebarBtn) {
             toggleSidebarBtn.addEventListener('click', () => {
                 sidebar.classList.toggle('open');
-                // Tambahkan overlay sederhana di main content untuk menutup saat diklik
                 if (sidebar.classList.contains('open')) {
                     const overlay = document.createElement('div');
                     overlay.id = 'sidebar-overlay';
@@ -1242,20 +1271,21 @@
             });
         }
 
-
+        // Fungsi untuk menutup hasil autocomplete saat klik di luar
         document.addEventListener('click', (e) => {
             if (e.target !== chatInput && e.target.closest('#autocomplete-results') === null) {
                 autocompleteResults.style.display = 'none';
             }
         });
 
+        // Menampilkan hasil autocomplete saat input fokus jika ada hasil
         chatInput.addEventListener('focus', () => {
             if (chatInput.value.length > 1 && autocompleteResults.childElementCount > 0) {
                 autocompleteResults.style.display = 'block';
             }
         });
 
-        // --- 5. MODIFIKASI FUNGSI SUBMIT ---
+
         chatForm.addEventListener('submit', async function (e) {
             e.preventDefault();
             const userInput = chatInput.value.trim();
@@ -1305,14 +1335,19 @@
                 'Hampir selesai...'
             ];
             let messageIndex = 0;
+            const maxIndex = loadingMessages.length - 1;
 
             if (loadingInterval) clearInterval(loadingInterval);
 
             loadingInterval = setInterval(() => {
                 const loadingSpan = document.getElementById('loading-text');
                 if (loadingSpan) {
-                    loadingSpan.innerHTML = loadingMessages[messageIndex % loadingMessages.length];
-                    messageIndex++;
+                    if (messageIndex <= maxIndex) {
+                        loadingSpan.innerHTML = loadingMessages[messageIndex];
+                        messageIndex++;
+                    } else {
+                        loadingSpan.innerHTML = loadingMessages[maxIndex];
+                    }
                 }
             }, 1800);
 
@@ -1395,6 +1430,7 @@
         });
 
         // --- EVENT LISTENER LAINNYA ---
+        // Event listener untuk tombol chat baru
         newChatBtn.addEventListener('click', (e) => {
             e.preventDefault();
             if (currentSession && currentSession.messages.length > 0 && !chatHistory.some(s => s.id === currentSession.id)) {
@@ -1405,6 +1441,7 @@
             resetChatView();
         });
 
+        // Event listener untuk klik pada sidebar history
         historyList.addEventListener('click', (e) => {
             e.preventDefault();
             const link = e.target.closest('a');
@@ -1432,27 +1469,82 @@
                 if (currentSession && currentSession.id == sessionId) resetChatView();
             }
         });
+
+        // Event listener untuk tombol download chart
         chatMessages.addEventListener('click', (e) => {
             const downloadBtn = e.target.closest('.download-chart-btn');
-            if (downloadBtn) {
-                const chartId = downloadBtn.dataset.chartId;
-                const chart = chartInstances[chartId];
-                if (!chart) return;
-                const canvas = chart.canvas;
-                const ctx = canvas.getContext('2d');
-                ctx.save();
-                ctx.globalCompositeOperation = 'destination-over';
-                ctx.fillStyle = 'white';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                const link = document.createElement('a');
-                link.download = `grafik-${chartId}.png`;
-                link.href = canvas.toDataURL('image/png');
-                link.click();
-                ctx.restore();
+            if (!downloadBtn) return;
+
+            const chartId = downloadBtn.dataset.chartId;
+            const chart = chartInstances[chartId];
+            if (!chart) return;
+
+            // Ambil Nama Lokasi dari Session Title (Kecamatan)
+            const fullLocation = currentSession.title || 'Lokasi';
+            const kecamatan = fullLocation.split(',')[0].trim();
+
+            // Tentukan judul sesuai tipe chart
+            let titleText = `Grafik Iklim - ${kecamatan}`;
+            if (chartId.includes('norm')) {
+                titleText = `Grafik Rata-rata Curah Hujan (1990-2020) - ${kecamatan}`;
+            } else if (chartId.includes('analysis')) {
+                titleText = `Grafik Analisis Curah Hujan (3 Bulan Terakhir) - ${kecamatan}`;
+            } else if (chartId.includes('das-pred')) {
+                titleText = `Grafik Prediksi Curah Hujan Dasarian - ${kecamatan}`;
+            } else if (chartId.includes('das-prob')) {
+                titleText = `Grafik Peluang Curah Hujan Dasarian - ${kecamatan}`;
+            } else if (chartId.includes('pred') && !chartId.includes('das')) {
+                titleText = `Grafik Prediksi Curah Hujan Bulanan - ${kecamatan}`;
             }
+
+            // Format Tanggal (YYYYMMDD)
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            const dateString = `${yyyy}${mm}${dd}`;
+
+            // Tentukan Prefiks berdasarkan tipe Chart ID (untuk nama file)
+            let prefix = 'chart';
+            if (chartId.includes('norm')) prefix = 'chart-normal';
+            else if (chartId.includes('analysis')) prefix = 'chart-analysis';
+            else if (chartId.includes('das-pred')) prefix = 'chart-prediksi-dasarian';
+            else if (chartId.includes('das-prob')) prefix = 'chart-peluang-dasarian';
+            else if (chartId.includes('pred') && !chartId.includes('das')) prefix = 'chart-prediksi-bulanan';
+
+            const safeKecamatan = kecamatan.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            const fileName = `${prefix}-${safeKecamatan}-${dateString}.png`;
+
+            // Buat canvas baru untuk menambahkan judul
+            const originalCanvas = chart.canvas;
+            const paddingTop = 10; // ruang judul
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = originalCanvas.width;
+            tempCanvas.height = originalCanvas.height + paddingTop;
+
+            const tctx = tempCanvas.getContext('2d');
+            // Latar putih
+            tctx.fillStyle = '#ffffff';
+            tctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+            // Tulis judul
+            tctx.fillStyle = '#000000';
+            tctx.font = 'bold 18px Inter, Arial, sans-serif';
+            tctx.textAlign = 'center';
+            tctx.textBaseline = 'middle';
+            tctx.fillText(titleText, tempCanvas.width / 2, paddingTop*3);
+
+            // Gambar chart di bawah judul
+            tctx.drawImage(originalCanvas, 0, paddingTop);
+
+            // Unduh
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
         });
 
-        // --- 6. MODIFIKASI FUNGSI PDF ---
+        // Event listener untuk tombol download chat sebagai PDF
         downloadChatBtn.addEventListener('click', async () => {
             if (!currentSession || currentSession.messages.length === 0) return;
 
@@ -1462,6 +1554,29 @@
             downloadChatBtn.disabled = true;
 
             try {
+                const fullLocationName = currentSession.title; // Format: Kecamatan, Kabupaten, Provinsi
+
+                // Pisahkan nama lokasi (contoh: Kupang Timur, Kupang, N...)
+                let parts = fullLocationName.split(',').map(p => p.trim());
+
+                let kecamatan = parts[0] || 'Unknown';
+                let kabupaten = parts[1] || 'Unknown';
+
+                // Format tanggal saat ini (YYYY-MM-DD)
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const dateString = `${year}${month}${day}`;
+
+
+
+                // Bersihkan string untuk nama file: ganti spasi/koma/karakter non-alfanumerik dengan underscore
+                const safeKecamatan = kecamatan.replace(/[^a-zA-Z0-9]/g, '_');
+                const safeKabupaten = kabupaten.replace(/[^a-zA-Z0-9]/g, '_');
+
+                const fileName = `ringkasan_iklim-${safeKecamatan}_${safeKabupaten}-${dateString}.pdf`;
+
                 const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
                 let y = 15;
                 const margin = 15;
@@ -1482,7 +1597,7 @@
                         pdf.setFontSize(12);
                         pdf.setFont(undefined, 'bold');
                         pdf.setTextColor(0, 0, 0);
-                        checkPageBreak(10 + 90); // Tinggi untuk judul + grafik
+                        checkPageBreak(10 + 90);
                         pdf.text(title, margin, y);
                         y += 7;
                         const chartImgData = chart.toBase64Image();
@@ -1497,7 +1612,7 @@
                 const titleLines = pdf.splitTextToSize(fullTitle, contentWidth);
                 pdf.text(titleLines, margin, y);
                 const titleHeight = titleLines.length * 7;
-                y += titleHeight + 8; // Tambahkan tinggi judul + jarak
+                y += titleHeight + 8;
 
                 for (const msg of currentSession.messages) {
                     pdf.setFont(undefined, 'normal');
@@ -1512,20 +1627,25 @@
                             break;
                         case 'narrative':
                             let textToParse = msg.html.replace(/<br\s*\/?>/gi, '_NEWLINE_');
+
+                            // textToParse = textToParse.replace(/<\/?(strong|em|b|i)\s*\/?>/gi, ' ');
                             textToParse = textToParse.replace(/<[^>]*>?/gm, '');
                             textToParse = textToParse.replace(/\s+/g, ' ').trim();
+
                             const plainText = textToParse.replace(/_NEWLINE_/g, '\n');
+                            const finalPlainText = plainText.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
                             pdf.setFontSize(12);
                             pdf.setFont(undefined, 'normal');
                             pdf.setTextColor(80, 80, 80);
-                            const narrativeLines = pdf.splitTextToSize(plainText, contentWidth);
-                            const narrativeHeight = narrativeLines.length * 5;
-                            checkPageBreak(narrativeHeight);
-                            pdf.text(narrativeLines, margin, y, { align: 'justify', maxWidth: contentWidth });
-                            y += narrativeHeight + 8;
-                            break;
 
-                        // Kasus Chart Tunggal
+                            const narrativeLines = pdf.splitTextToSize(finalPlainText, contentWidth);
+                            const narrativeHeight = narrativeLines.length * 7;
+
+                            checkPageBreak(narrativeHeight + 4);
+                            pdf.text(narrativeLines, margin, y, { align: 'justify', maxWidth: contentWidth });
+                            y += narrativeHeight + 9;
+                            break;
                         case 'chart_normal':
                         case 'chart_analysis':
                         case 'chart_das_prediction':
@@ -1534,52 +1654,42 @@
                             addChartToPdf(msg.chartId, msg.title);
                             break;
 
-                        // Kasus Chart Pair
                         case 'chart_das_pair':
-                            // Tambahkan kedua chart, satu per satu
                             const chartPred = chartInstances[msg.chartIdPred];
                             const chartProb = chartInstances[msg.chartIdProb];
 
                             if (chartPred && chartProb) {
-                                // 1. Tulis judul (menggunakan judul Prediksi sebagai acuan)
                                 pdf.setFontSize(12);
                                 pdf.setFont(undefined, 'bold');
                                 pdf.setTextColor(0, 0, 0);
-                                checkPageBreak(90); // Pastikan ada ruang untuk kedua chart
+                                checkPageBreak(90);
                                 pdf.text(msg.downloadTitle, margin, y);
                                 y += 7;
 
-                                // 2. Ambil gambar dari canvas
                                 const imgDataPred = chartPred.toBase64Image();
                                 const imgDataProb = chartProb.toBase64Image();
 
-                                // 3. Hitung lebar dan tinggi untuk berdampingan
-                                const halfContentWidth = (contentWidth / 2) - 3; // Setengah lebar dikurangi jarak antar grafik
+                                const halfContentWidth = (contentWidth / 2) - 3;
 
                                 const heightPred = chartPred.height * halfContentWidth / chartPred.width;
                                 const heightProb = chartProb.height * halfContentWidth / chartProb.width;
-                                const maxHeight = Math.max(heightPred, heightProb); // Ambil tinggi maksimum
+                                const maxHeight = Math.max(heightPred, heightProb);
 
-                                // JIKA Halaman tidak cukup untuk kedua chart, pindah halaman (double check)
                                 checkPageBreak(maxHeight + 10);
 
-                                // 4. Tambahkan Chart 1 (Kiri)
                                 pdf.addImage(imgDataPred, 'PNG', margin, y, halfContentWidth, heightPred);
 
-                                // 5. Tambahkan Chart 2 (Kanan, tambahkan jarak)
                                 pdf.addImage(imgDataProb, 'PNG', margin + halfContentWidth + 6, y, halfContentWidth, heightProb);
 
-                                // 6. Perbarui posisi Y untuk konten berikutnya
                                 y += maxHeight + 10;
                             } else {
-                                // Jika data chart dasarian hilang, tambahkan chart tunggal yang ada
                                 if (chartPred) addChartToPdf(msg.chartIdPred, msg.predTitle);
                                 if (chartProb) addChartToPdf(msg.chartIdProb, msg.probTitle);
                             }
                             break;
                     }
                 }
-                pdf.save(`obrolan-${currentSession.id}.pdf`);
+                pdf.save(fileName);
             } catch (error) {
                 console.error("Gagal membuat PDF:", error);
                 alert("Gagal membuat PDF. Silakan periksa konsol untuk detail.");
@@ -1589,6 +1699,7 @@
             }
         });
 
+        // Event listener untuk tombol download data sebagai CSV
         downloadDataBtn.addEventListener('click', () => {
             if (!currentSession || !currentSession.title) return;
 
@@ -1596,21 +1707,16 @@
             downloadDataBtn.innerHTML = '<div class="loader-small"></div>';
             downloadDataBtn.disabled = true;
 
-            // Ambil nama lokasi yang tersimpan di session.title
             const locationQuery = currentSession.title;
 
-            // Gunakan URL API download yang baru
             const downloadUrl = `/api/download-data?kecamatan=${encodeURIComponent(locationQuery)}`;
 
-            // Menggunakan fetch untuk download (ini akan memicu browser untuk menyimpan file)
             fetch(downloadUrl)
                 .then(response => {
                     if (!response.ok) {
-                        // Jika API mengembalikan error JSON
                         response.json().then(data => alert('Gagal mengunduh data: ' + (data.error || 'Terjadi kesalahan tidak dikenal.')));
                         throw new Error('Network response was not ok.');
                     }
-                    // Memicu download file:
                     const contentDisposition = response.headers.get('Content-Disposition');
                     let filename = contentDisposition ? contentDisposition.split('filename=')[1].replace(/"/g, '') : 'Data_Iklim.csv';
 
@@ -1627,7 +1733,6 @@
                 })
                 .catch(error => {
                     console.error('Download Error:', error);
-                    // alert('Gagal mengunduh data. Silakan coba lagi.');
                 })
                 .finally(() => {
                     downloadDataBtn.innerHTML = originalBtnHTML;
@@ -1635,25 +1740,18 @@
                 });
         });
 
+        // Event listener untuk tombol hapus semua riwayat
         deleteAllBtn.addEventListener('click', () => {
-            // Konfirmasi sebelum menghapus semua riwayat
             if (confirm('Apakah Anda yakin ingin menghapus SEMUA riwayat obrolan? Aksi ini tidak dapat dibatalkan.')) {
-                // Hapus item dari localStorage
                 localStorage.removeItem('bmkgChatHistory');
-
-                // Reset variabel lokal
                 chatHistory = [];
 
-                // Reset tampilan obrolan utama
                 resetChatView();
-
-                // Render ulang sidebar
                 renderHistorySidebar();
 
                 alert('Semua riwayat obrolan telah dihapus.');
             }
         });
-
         document.addEventListener('DOMContentLoaded', loadHistory);
     </script>
 </body>
